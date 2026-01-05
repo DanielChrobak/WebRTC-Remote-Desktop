@@ -45,11 +45,6 @@ set(JS_FILES
     js/ui.js
 )
 
-set(CONFIG_FILES
-    turn_config.json
-    turn_config.example.json
-)
-
 add_executable(ScreenShare ${SOURCES} ${HEADERS})
 
 # Enable OpenSSL support for cpp-httplib
@@ -101,13 +96,5 @@ foreach(JS_FILE ${JS_FILES})
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/${JS_FILE}
             $<TARGET_FILE_DIR:ScreenShare>/${JS_FILE}
-    )
-endforeach()
-
-foreach(CONFIG_FILE ${CONFIG_FILES})
-    add_custom_command(TARGET ScreenShare POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/${CONFIG_FILE}
-            $<TARGET_FILE_DIR:ScreenShare>/${CONFIG_FILE}
     )
 endforeach()

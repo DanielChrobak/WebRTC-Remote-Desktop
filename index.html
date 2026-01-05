@@ -80,7 +80,10 @@
   <div class="ph"><span class="pt">Settings</span><button class="px" id="pnlX">×</button></div>
   <div class="pc">
     <div class="sec fss">
-      <button class="btn" id="fs"><svg id="fsi" viewBox="0 0 24 24"><path id="fsp"/></svg><span id="fst">Fullscreen</span></button>
+      <div class="btn-row">
+        <button class="btn" id="fs"><svg id="fsi" viewBox="0 0 24 24"><path id="fsp"/></svg><span id="fst">Fullscreen</span></button>
+        <button class="btn" id="disconnectBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/></svg><span>Disconnect</span></button>
+      </div>
     </div>
     <div class="sec">
       <div class="sl">Audio</div>
@@ -111,10 +114,7 @@
         <select class="sel" id="fpsSel"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select>
       </div>
     </div>
-    <div class="sec">
-      <div class="sl">Connection</div>
-      <button class="btn" id="disconnectBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18.36 6.64A9 9 0 1 1 5.64 18.36M12 2v10"/></svg><span>Disconnect</span></button>
-    </div>
+
     <div class="sec">
       <div class="sl">Debug</div>
       <div class="tog" id="togS" tabindex="0"><div class="tl">Stats Overlay</div><div class="ts"></div></div>

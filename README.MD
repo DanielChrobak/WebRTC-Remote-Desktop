@@ -160,4 +160,4 @@ The host serves these files on port 6060:
 
 ## License
 
-MIT
+BSL 1.1

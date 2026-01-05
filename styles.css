@@ -87,6 +87,8 @@ body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--
 .sec{margin-bottom:14px}
 .sec:last-child{margin-bottom:0}
 .sl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--t3);margin-bottom:8px}
+.btn-row{display:flex;gap:8px}
+.btn-row .btn{flex:1}
 .btn{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;padding:9px 12px;background:var(--s2);border:1px solid var(--bd);border-radius:var(--r);cursor:pointer;color:var(--t1);font-size:12px;font-weight:500;transition:var(--e)}
 .btn:hover{background:var(--s3);border-color:var(--bh)}
 .btn:active{transform:scale(.98)}
