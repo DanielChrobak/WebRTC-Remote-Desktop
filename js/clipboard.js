@@ -1,17 +1,15 @@
-import { MSG, C, S } from './state.js';
+import { MSG, C, S, mkBuf } from './state.js';
 
 const hashData = data => {
     let hash = 0xcbf29ce484222325n;
-    const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data);
-    for (const byte of bytes) hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
+    for (const byte of (typeof data === 'string' ? new TextEncoder().encode(data) : new Uint8Array(data)))
+        hash = BigInt.asUintN(64, (hash ^ BigInt(byte)) * 0x100000001b3n);
     return hash;
 };
 
-let sendFn = null, pendingText = null, pendingImage = null;
+let sendFn = null, pendingText = null, pendingImage = null, clipboardIgnoreUntil = 0;
 
 export const setClipboardSendFn = fn => { sendFn = fn; };
-
-const mkBuf = (size, fn) => { const b = new ArrayBuffer(size), v = new DataView(b); fn(v); return b; };
 
 export const sendClipboardText = text => {
     if (!S.clipboardEnabled || !sendFn || !text || text.length > C.MAX_CLIPBOARD_TEXT) return false;
@@ -28,12 +26,10 @@ export const sendClipboardText = text => {
 export const sendClipboardImage = async blob => {
     if (!S.clipboardEnabled || !sendFn || !blob || blob.size > C.MAX_CLIPBOARD_SIZE) return false;
     try {
-        const arrayBuffer = await blob.arrayBuffer();
-        const hash = hashData(arrayBuffer);
+        const arrayBuffer = await blob.arrayBuffer(), hash = hashData(arrayBuffer);
         if (hash === S.clipboardLastSentHash) return false;
         S.clipboardLastSentHash = hash;
-        const img = await createImageBitmap(blob);
-        const { width, height } = img; img.close();
+        const img = await createImageBitmap(blob), { width, height } = img; img.close();
         const buf = mkBuf(16 + arrayBuffer.byteLength, v => {
             v.setUint32(0, MSG.CLIPBOARD_IMAGE, true); v.setUint32(4, width, true);
             v.setUint32(8, height, true); v.setUint32(12, arrayBuffer.byteLength, true);
@@ -45,12 +41,11 @@ export const sendClipboardImage = async blob => {
 };
 
 const writeClipboard = async (text, image) => {
-    S.clipboardIgnoreNext = true;
+    clipboardIgnoreUntil = performance.now() + 500;
     try {
         if (text) { await navigator.clipboard.writeText(text); S.stats.clipboard++; console.info(`Clipboard: wrote ${text.length} bytes text`); }
         else if (image) {
-            const blob = new Blob([image.pngData], { type: 'image/png' });
-            await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+            await navigator.clipboard.write([new ClipboardItem({ 'image/png': new Blob([image.pngData], { type: 'image/png' }) })]);
             S.stats.clipboard++; console.info(`Clipboard: wrote ${image.width}x${image.height} image`);
         }
     } catch (e) { document.hasFocus() && console.warn('Clipboard: write failed', e.message); }
@@ -66,8 +61,7 @@ export const handleClipboardText = async data => {
 };
 
 export const handleClipboardImage = async data => {
-    const view = new DataView(data);
-    const width = view.getUint32(4, true), height = view.getUint32(8, true), dataLength = view.getUint32(12, true);
+    const view = new DataView(data), width = view.getUint32(4, true), height = view.getUint32(8, true), dataLength = view.getUint32(12, true);
     if (data.byteLength < 16 + dataLength || dataLength > C.MAX_CLIPBOARD_SIZE) return;
     const pngData = new Uint8Array(data, 16, dataLength);
     if (hashData(pngData) === S.clipboardLastSentHash) return;
@@ -75,29 +69,20 @@ export const handleClipboardImage = async data => {
     await writeClipboard(null, { pngData, width, height });
 };
 
-const writePendingClipboard = async () => {
-    if (pendingText) { const t = pendingText; pendingText = null; await writeClipboard(t, null); }
-    else if (pendingImage) { const i = pendingImage; pendingImage = null; await writeClipboard(null, i); }
-};
-
 export const requestClipboard = () => sendFn && sendFn(mkBuf(4, v => v.setUint32(0, MSG.CLIPBOARD_REQUEST, true)));
 
 export const syncLocalClipboard = async () => {
-    if (!S.clipboardEnabled || S.clipboardIgnoreNext) { S.clipboardIgnoreNext = false; return; }
+    if (!S.clipboardEnabled || performance.now() < clipboardIgnoreUntil) return;
     try {
-        const perm = await navigator.permissions.query({ name: 'clipboard-read' });
-        if (perm.state === 'denied') return;
-        const items = await navigator.clipboard.read();
-        for (const item of items) {
+        if ((await navigator.permissions.query({ name: 'clipboard-read' })).state === 'denied') return;
+        for (const item of await navigator.clipboard.read()) {
             if (item.types.includes('image/png')) return sendClipboardImage(await item.getType('image/png'));
             if (item.types.includes('text/plain')) {
                 const text = await (await item.getType('text/plain')).text();
                 if (text.trim()) return sendClipboardText(text);
             }
         }
-    } catch {
-        try { const text = await navigator.clipboard.readText(); text?.trim() && sendClipboardText(text); } catch {}
-    }
+    } catch { try { const text = await navigator.clipboard.readText(); text?.trim() && sendClipboardText(text); } catch {} }
 };
 
 let clipboardMonitorActive = false;
@@ -105,11 +90,14 @@ export const startClipboardMonitor = () => {
     if (clipboardMonitorActive) return;
     clipboardMonitorActive = true;
     window.addEventListener('focus', () => {
-        if (S.clipboardEnabled && S.dc?.readyState === 'open')
-            writePendingClipboard().then(() => setTimeout(syncLocalClipboard, 100));
+        if (S.clipboardEnabled && S.dc?.readyState === 'open') {
+            (pendingText ? writeClipboard(pendingText, null).then(() => pendingText = null) :
+             pendingImage ? writeClipboard(null, pendingImage).then(() => pendingImage = null) : Promise.resolve())
+            .then(() => setTimeout(syncLocalClipboard, 100));
+        }
     });
     ['copy', 'cut'].forEach(e => document.addEventListener(e, () => {
-        if (S.clipboardEnabled && S.dc?.readyState === 'open') setTimeout(syncLocalClipboard, 100);
+        S.clipboardEnabled && S.dc?.readyState === 'open' && setTimeout(syncLocalClipboard, 100);
     }));
     console.info('Clipboard: monitoring started');
 };

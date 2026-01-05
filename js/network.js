@@ -13,8 +13,8 @@ const sendMsg = buf => { if (S.dc?.readyState !== 'open') return false; try { S.
 
 const AUTH_KEY = 'remote_desktop_auth';
 let currentCreds = null, authResolve = null, authRejectFn = null;
-let cachedIce = null, iceFetched = false, hasConnected = false, waitFirstFrame = false, connAttempts = 0;
-const MAX_DELAY = 10000;
+let cachedIce = null, iceFetched = false, hasConnected = false, waitFirstFrame = false, connAttempts = 0, pingInterval = null;
+const MAX_DELAY = 10000, STUN_FALLBACK = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 
 const authEl = { overlay: $('authOverlay'), user: $('usernameInput'), pin: $('pinInput'), err: $('authError'), btn: $('authSubmit') };
 const validUser = u => u?.length >= 3 && u.length <= 32 && /^[a-zA-Z0-9_-]+$/.test(u);
@@ -22,26 +22,20 @@ const validPin = p => p?.length === 6 && /^\d{6}$/.test(p);
 const getSaved = () => { try { return JSON.parse(localStorage.getItem(AUTH_KEY)); } catch { return null; } };
 const saveCreds = (u, p) => { try { localStorage.setItem(AUTH_KEY, JSON.stringify({ username: u, pin: p })); } catch {} };
 const clearCreds = () => { try { localStorage.removeItem(AUTH_KEY); } catch {} };
+const clearPing = () => { pingInterval && (clearInterval(pingInterval), pingInterval = null); };
+const validCreds = c => c && validUser(c.username) && validPin(c.pin);
+
+const setAuthErr = (err, el) => { authEl.err.textContent = err; [authEl.user, authEl.pin].forEach(e => e.classList.toggle('error', e === el)); el?.focus(); };
 
 const showAuthModal = (err = '') => {
     authEl.user.value = authEl.pin.value = '';
-    authEl.err.textContent = err;
-    [authEl.user, authEl.pin].forEach(el => el.classList.toggle('error', !!err));
+    setAuthErr(err, err ? authEl.user : null);
     authEl.overlay.classList.add('visible');
     authEl.btn.disabled = false;
     setTimeout(() => authEl.user.focus(), 100);
 };
 
-const hideAuthModal = () => {
-    authEl.overlay.classList.remove('visible');
-    authEl.err.textContent = '';
-    [authEl.user, authEl.pin].forEach(el => el.classList.remove('error'));
-};
-
-const clearAuthErr = () => {
-    authEl.err.textContent = '';
-    [authEl.user, authEl.pin].forEach(el => el.classList.remove('error'));
-};
+const hideAuthModal = () => { authEl.overlay.classList.remove('visible'); setAuthErr('', null); };
 
 const sendAuth = (username, pin) => {
     if (S.dc?.readyState !== 'open') return console.error('Data channel not open for auth'), false;
@@ -61,33 +55,30 @@ const handleAuthResponse = data => {
     if (success) {
         console.info('Authentication successful (WebRTC)');
         S.authenticated = true; hideAuthModal();
-        authResolve?.(true); authResolve = authRejectFn = null;
     } else {
         const errMsg = errLen && data.byteLength >= 6 + errLen ? new TextDecoder().decode(new Uint8Array(data, 6, errLen)) : 'Invalid credentials';
         console.warn('Authentication failed:', errMsg);
         S.authenticated = false; clearCreds(); currentCreds = null;
         showAuthModal(errMsg);
-        authRejectFn?.(new Error(errMsg)); authResolve = authRejectFn = null;
+        authRejectFn?.(new Error(errMsg));
     }
+    authResolve?.(success); authResolve = authRejectFn = null;
     return true;
 };
 
-authEl.user.addEventListener('input', e => { e.target.value = e.target.value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32); clearAuthErr(); });
+authEl.user.addEventListener('input', e => { e.target.value = e.target.value.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 32); setAuthErr('', null); });
 authEl.user.addEventListener('keydown', e => e.key === 'Enter' && (e.preventDefault(), authEl.pin.focus()));
-authEl.pin.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); clearAuthErr(); });
-authEl.pin.addEventListener('keydown', e => e.key === 'Enter' && validUser(authEl.user.value) && validPin(authEl.pin.value) && authEl.btn.click());
+authEl.pin.addEventListener('input', e => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 6); setAuthErr('', null); });
+authEl.pin.addEventListener('keydown', e => e.key === 'Enter' && validCreds({ username: authEl.user.value, pin: authEl.pin.value }) && authEl.btn.click());
 
 authEl.btn.addEventListener('click', () => {
     const u = authEl.user.value, p = authEl.pin.value;
-    if (!validUser(u)) { authEl.err.textContent = 'Username must be 3-32 characters (letters, numbers, _, -)'; authEl.user.classList.add('error'); authEl.user.focus(); return; }
-    if (!validPin(p)) { authEl.err.textContent = 'PIN must be exactly 6 digits'; authEl.pin.classList.add('error'); authEl.pin.focus(); return; }
+    if (!validUser(u)) return setAuthErr('Username must be 3-32 characters (letters, numbers, _, -)', authEl.user);
+    if (!validPin(p)) return setAuthErr('PIN must be exactly 6 digits', authEl.pin);
     authEl.btn.disabled = true; authEl.err.textContent = '';
     currentCreds = { username: u, pin: p }; saveCreds(u, p);
-    if (S.dc?.readyState === 'open') sendAuth(u, p);
-    else { hideAuthModal(); authResolve?.(true); authResolve = authRejectFn = null; }
+    S.dc?.readyState === 'open' ? sendAuth(u, p) : (hideAuthModal(), authResolve?.(true), authResolve = authRejectFn = null);
 });
-
-const STUN_FALLBACK = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
 
 const fetchTurn = async () => {
     if (iceFetched && cachedIce) return cachedIce;
@@ -170,15 +161,24 @@ const parseMonList = data => {
 };
 
 export const selDefFps = () => {
-    const sel = $('fpsSel'), opts = [...sel.options].map(o => +o.value);
+    const sel = $('fpsSel');
+    if (!sel?.options.length) return S.clientFps;
+    const opts = [...sel.options].map(o => +o.value);
     const best = opts.reduce((b, o) => Math.abs(o - S.clientFps) < Math.abs(b - S.clientFps) ? o : b, opts[0]);
     sel.value = opts.includes(S.clientFps) ? S.clientFps : best;
-    return sel.value;
+    return +sel.value;
 };
 
 export const applyFps = val => {
     const fps = +val, mode = fps === S.hostFps ? 1 : fps === S.clientFps ? 2 : 0;
     if (sendFps(fps, mode)) { S.currentFps = fps; S.currentFpsMode = mode; S.fpsSent = true; }
+};
+
+const isFrameIdNewer = (newId, lastId) => { const diff = (newId - lastId) >>> 0; return diff > 0 && diff < 0x80000000; };
+
+const tryDropFrame = (id, fr, rt) => {
+    if (fr.received === fr.total) processCompleteFrame(id, fr, rt);
+    else { S.chunks.delete(id); S.stats.tDropNet++; if (fr.isKey) { S.needKey = true; reqKey(); } }
 };
 
 const processCompleteFrame = (fid, fr, rt) => {
@@ -190,25 +190,22 @@ const processCompleteFrame = (fid, fr, rt) => {
     if (fid > S.lastFrameId) S.lastFrameId = fid;
     let netMs = S.rtt / 2;
     if (S.clockSync) { const c = (toSrvUs(fr.firstTime) - (fr.capTs + fr.encMs * 1000)) / 1000; if (c >= 0 && c < 1000) netMs = c; }
-    updJitter(ct, fr.capTs, S.lastCapTs);
+    const prevCapTs = S.lastProcessedCapTs || 0;
+    updJitter(ct, fr.capTs, prevCapTs);
+    S.lastProcessedCapTs = fr.capTs;
     const data = { buf, capTs: fr.capTs, encMs: fr.encMs, netMs, isKey: fr.isKey, fcT: ct, fId: fid };
     const onFrame = () => { decodeFrame(data); if (waitFirstFrame && isLoadingVisible()) { waitFirstFrame = false; hideLoading(); hasConnected = true; } };
     S.ready ? onFrame() : fr.isKey && (function try_() { S.ready ? onFrame() : setTimeout(try_, 5); })();
     S.chunks.delete(fid);
 };
 
-const tryDropFrame = (id, fr, rt) => {
-    if (fr.received === fr.total) processCompleteFrame(id, fr, rt);
-    else { S.chunks.delete(id); S.stats.tDropNet++; if (fr.isKey) { S.needKey = true; reqKey(); } }
-};
-
 const handleMsg = e => {
     const rt = performance.now();
     if (!(e.data instanceof ArrayBuffer) || e.data.byteLength < 4) return;
-    const v = new DataView(e.data), mg = v.getUint32(0, true);
+    const v = new DataView(e.data), mg = v.getUint32(0, true), len = e.data.byteLength;
 
     if (mg === MSG.AUTH_RESPONSE) return handleAuthResponse(e.data);
-    if (mg === MSG.PING && e.data.byteLength === 24) {
+    if (mg === MSG.PING && len === 24) {
         const cs = v.getBigUint64(8, true), st = v.getBigUint64(16, true), cr = BigInt(tsUs());
         S.rtt = Number(cr - cs) / 1000;
         S.clockSamples.push(Number(cr - (st + (cr - cs) / 2n))); S.clockSamples.length > 8 && S.clockSamples.shift();
@@ -216,36 +213,56 @@ const handleMsg = e => {
         if (S.clockSamples.length >= 3 && !S.clockSync) S.clockSync = true;
         return;
     }
-    if (mg === MSG.HOST_INFO && e.data.byteLength === 6) {
+    if (mg === MSG.HOST_INFO && len === 6) {
         S.hostFps = v.getUint16(4, true); updateFpsOpts();
         if (!S.fpsSent) setTimeout(() => applyFps(selDefFps()), 50);
         if (isLoadingVisible()) { updateLoadingStage(ConnectionStage.STREAMING); waitFirstFrame = true; }
         return;
     }
-    if (mg === MSG.FPS_ACK && e.data.byteLength === 7) { S.currentFps = v.getUint16(4, true); S.currentFpsMode = v.getUint8(6); return; }
-    if (mg === MSG.MONITOR_LIST && e.data.byteLength >= 6) return parseMonList(e.data);
-    if (mg === MSG.AUDIO_DATA && e.data.byteLength >= 16) return handleAudioPkt(e.data);
+    if (mg === MSG.FPS_ACK && len === 7) { S.currentFps = v.getUint16(4, true); S.currentFpsMode = v.getUint8(6); return; }
+    if (mg === MSG.MONITOR_LIST && len >= 6) return parseMonList(e.data);
+    if (mg === MSG.AUDIO_DATA && len >= 16) return handleAudioPkt(e.data);
     if (mg === MSG.CLIPBOARD_TEXT || mg === MSG.CLIPBOARD_IMAGE || mg === MSG.CLIPBOARD_ACK) return handleClipboardMessage(e.data);
-    if (e.data.byteLength < C.HEADER) return;
+    if (len < C.HEADER) return;
 
-    S.stats.bytes += e.data.byteLength; S.stats.tBytes += e.data.byteLength;
+    S.stats.bytes += len; S.stats.tBytes += len;
     const cap = Number(v.getBigUint64(0, true)), enc = v.getUint32(8, true), fid = v.getUint32(12, true);
     const cidx = v.getUint16(16, true), tot = v.getUint16(18, true), typ = v.getUint8(20);
     const chunk = new Uint8Array(e.data, C.HEADER);
 
-    if (fid < S.lastFrameId) return;
+    if (S.lastFrameId > 0 && !isFrameIdNewer(fid, S.lastFrameId) && fid !== S.lastFrameId) return;
+
+    for (const [id, fr] of S.chunks) {
+        if (fr.received < fr.total && rt - fr.firstTime > C.FRAME_TIMEOUT_MS) tryDropFrame(id, fr, rt);
+    }
+
     if (!S.chunks.has(fid)) {
-        for (const [id, fr] of S.chunks) if (id < fid && fr.received < fr.total) tryDropFrame(id, fr, rt);
+        for (const [id, fr] of S.chunks) {
+            if (isFrameIdNewer(fid, id) && fr.received < fr.total) tryDropFrame(id, fr, rt);
+        }
         S.chunks.set(fid, { parts: Array(tot).fill(null), total: tot, received: 0, capTs: cap, encMs: enc / 1000, firstTime: rt, isKey: typ === 1 });
+
         if (S.chunks.size > C.MAX_FRAMES) {
             let did = null, dage = 0;
-            for (const [id, fr] of S.chunks) if (id !== fid && fr.received !== fr.total) { const a = rt - fr.firstTime; if (a > dage && !fr.isKey) { dage = a; did = id; } }
-            if (!did) for (const [id, fr] of S.chunks) if (id !== fid && fr.received !== fr.total) { const a = rt - fr.firstTime; if (a > dage) { dage = a; did = id; } }
+            for (const [id, fr] of S.chunks) {
+                if (id !== fid && fr.received !== fr.total) {
+                    const a = rt - fr.firstTime;
+                    if (a > dage && !fr.isKey) { dage = a; did = id; }
+                }
+            }
+            if (!did) for (const [id, fr] of S.chunks) {
+                if (id !== fid && fr.received !== fr.total) {
+                    const a = rt - fr.firstTime;
+                    if (a > dage) { dage = a; did = id; }
+                }
+            }
             if (did) tryDropFrame(did, S.chunks.get(did), rt);
         }
     }
-    const fr = S.chunks.get(fid); if (!fr || fr.parts[cidx]) return;
-    fr.parts[cidx] = chunk; fr.received++;
+    const fr = S.chunks.get(fid);
+    if (!fr || fr.parts[cidx]) return;
+    fr.parts[cidx] = chunk;
+    fr.received++;
     if (fr.received === fr.total) processCompleteFrame(fid, fr, rt);
 };
 
@@ -255,31 +272,38 @@ const setupDC = () => {
         S.fpsSent = S.authenticated = false;
         updateLoadingStage(ConnectionStage.AUTHENTICATING);
         console.info('Data channel opened, sending authentication...');
-        let creds = currentCreds;
-        if (!creds || !validUser(creds.username) || !validPin(creds.pin)) {
+        if (!validCreds(currentCreds)) {
             const saved = getSaved();
-            if (saved && validUser(saved.username) && validPin(saved.pin)) creds = currentCreds = saved;
+            if (validCreds(saved)) currentCreds = saved;
         }
-        creds && validUser(creds.username) && validPin(creds.pin) ? sendAuth(creds.username, creds.pin) : showAuthModal();
+        validCreds(currentCreds) ? sendAuth(currentCreds.username, currentCreds.pin) : showAuthModal();
         await initDecoder();
-        setInterval(() => S.dc?.readyState === 'open' && S.dc.send(mkBuf(16, v => { v.setUint32(0, MSG.PING, true); v.setBigUint64(8, BigInt(tsUs()), true); })), C.PING_MS);
+        clearPing();
+        pingInterval = setInterval(() => S.dc?.readyState === 'open' && S.dc.send(mkBuf(16, v => { v.setUint32(0, MSG.PING, true); v.setBigUint64(8, BigInt(tsUs()), true); })), C.PING_MS);
         startClipboardMonitor(); syncLocalClipboard();
     };
-    S.dc.onclose = () => { S.fpsSent = S.authenticated = false; };
+    S.dc.onclose = () => { S.fpsSent = S.authenticated = false; clearPing(); };
     S.dc.onerror = e => console.error('DataChannel:', e);
     S.dc.onmessage = handleMsg;
+};
+
+const resetState = () => {
+    clearPing();
+    S.dc?.close(); S.pc?.close(); try { S.decoder?.state !== 'closed' && S.decoder?.close(); } catch {}
+    S.dc = S.pc = S.decoder = null;
+    S.ready = S.clockSync = S.fpsSent = S.authenticated = false;
+    S.jitter.last = 0; S.jitter.deltas = []; waitFirstFrame = false;
+    S.chunks.clear(); S.lastFrameId = 0; S.lastProcessedCapTs = 0; S.frameMeta.clear();
+    Object.assign(S.ice, { candidates: { host: 0, srflx: 0, relay: 0, prflx: 0 }, connectionType: 'unknown', usingTurn: false, selectedPair: null });
 };
 
 export const connect = async () => {
     try {
         const saved = getSaved();
-        if (saved && validUser(saved.username) && validPin(saved.pin)) currentCreds = saved;
+        if (validCreds(saved)) currentCreds = saved;
         showLoading(hasConnected);
         updateLoadingStage(ConnectionStage.ICE_GATHERING);
-        S.dc?.close(); S.pc?.close(); try { S.decoder?.state !== 'closed' && S.decoder?.close(); } catch {}
-        S.dc = S.pc = S.decoder = null;
-        S.ready = S.clockSync = S.fpsSent = S.authenticated = false; S.jitter.last = 0; S.jitter.deltas = []; waitFirstFrame = false;
-        Object.assign(S.ice, { candidates: { host: 0, srflx: 0, relay: 0, prflx: 0 }, connectionType: 'unknown', usingTurn: false, selectedPair: null });
+        resetState();
 
         const iceServers = await fetchTurn();
         const pc = S.pc = new RTCPeerConnection({ iceServers, iceCandidatePoolSize: 10, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
@@ -342,7 +366,7 @@ export const detectFps = async () => {
     });
 };
 
-export const cleanup = () => { S.dc?.close(); S.pc?.close(); };
+export const cleanup = () => { clearPing(); S.dc?.close(); S.pc?.close(); };
 
 (async () => { setNetCbs(applyFps, sendMonSel); S.clientFps = await detectFps(); updateFpsOpts(); connect(); setInterval(updateStats, 1000); })();
 window.onbeforeunload = () => { cleanup(); closeAudio(); };
