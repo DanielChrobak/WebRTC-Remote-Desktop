@@ -130,27 +130,6 @@ The host serves these files on port 6060:
 
 ---
 
-## Troubleshooting
-
-### Connection Issues
-
-**No video after connecting**
-- Check if authentication succeeded
-- The host console shows `[LIVE]` when streaming
-- Try refreshing the page
-
-### Build Issues
-
-**vcpkg not found**
-- Set `VCPKG_ROOT` environment variable, or
-- Install vcpkg to `C:\vcpkg`
-
-**FFmpeg/libdatachannel errors**
-- Run `vcpkg install --triplet x64-windows` manually
-- Check that Visual Studio 2022 is installed with C++ workload
-
----
-
 ## Security Notes
 
 - Always use a strong 6-digit PIN
