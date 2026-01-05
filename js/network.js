@@ -12,6 +12,7 @@ let connectionMode = 'local'; // 'local' or 'remote'
 let baseUrl = ''; // For local mode: http://192.168.1.x:80
 let signalingUrl = ''; // For remote mode: https://worker.workers.dev
 let hostId = ''; // For remote mode: ABC123
+let turnUrl = ''; // For remote mode: TURN credentials fetch URL
 const CONNECTION_TIMEOUT = 15000;
 const LOCAL_DETECT_TIMEOUT = 3000;
 
@@ -45,6 +46,7 @@ const connectEl = {
     localUrl: $('localUrlInput'),
     signalingUrl: $('signalingUrlInput'),
     hostId: $('hostIdInput'),
+    turnUrl: $('turnUrlInput'),
     localBtn: $('connectLocalBtn'),
     remoteBtn: $('connectRemoteBtn'),
     error: $('connectError')
@@ -57,6 +59,7 @@ const loadConnectionSettings = () => {
             if (saved.localUrl) connectEl.localUrl.value = saved.localUrl;
             if (saved.signalingUrl) connectEl.signalingUrl.value = saved.signalingUrl;
             if (saved.hostId) connectEl.hostId.value = saved.hostId;
+            if (saved.turnUrl) connectEl.turnUrl.value = saved.turnUrl;
             if (saved.mode === 'remote') {
                 switchTab('remote');
             }
@@ -70,7 +73,8 @@ const saveConnectionSettings = () => {
             mode: connectionMode,
             localUrl: connectEl.localUrl.value,
             signalingUrl: connectEl.signalingUrl.value,
-            hostId: connectEl.hostId.value
+            hostId: connectEl.hostId.value,
+            turnUrl: connectEl.turnUrl.value
         }));
     } catch {}
 };
@@ -147,6 +151,7 @@ connectEl.localBtn.addEventListener('click', async () => {
 connectEl.remoteBtn.addEventListener('click', async () => {
     let url = connectEl.signalingUrl.value.trim();
     const id = connectEl.hostId.value.trim().toUpperCase();
+    const turn = connectEl.turnUrl.value.trim();
 
     if (!url) {
         setConnectError('Please enter a signaling server URL');
@@ -168,6 +173,7 @@ connectEl.remoteBtn.addEventListener('click', async () => {
     connectionMode = 'remote';
     signalingUrl = url;
     hostId = id;
+    turnUrl = turn;
     saveConnectionSettings();
     hideConnectModal();
     showLoading(false);
@@ -269,18 +275,37 @@ const fetchTurn = async () => {
         console.info('Fetching TURN configuration...');
         let cfg = null;
 
-        // Try to fetch from server
-        const turnUrl = connectionMode === 'local' ? `${baseUrl}/api/turn` : null;
-        if (turnUrl) {
+        // Try to fetch from server (local mode) or use provided TURN URL (remote mode)
+        if (connectionMode === 'local' && baseUrl) {
             try {
-                const res = await fetch(turnUrl);
+                const res = await fetch(`${baseUrl}/api/turn`);
                 if (res.ok) cfg = await res.json();
             } catch {}
+        } else if (connectionMode === 'remote' && turnUrl) {
+            // Remote mode with TURN URL provided - fetch credentials directly
+            try {
+                console.info('Fetching TURN credentials from provided URL...');
+                S.ice.configSource = 'metered';
+                const res = await fetch(turnUrl);
+                if (res.ok) {
+                    const servers = await res.json();
+                    if (Array.isArray(servers) && servers.length) {
+                        console.info(`Loaded ${servers.length} ICE servers from TURN URL`);
+                        S.ice.stunServers = servers.filter(s => s.urls?.startsWith('stun:')).length;
+                        S.ice.turnServers = servers.filter(s => s.urls?.startsWith('turn:') || s.urls?.startsWith('turns:')).length;
+                        cachedIce = servers;
+                        iceFetched = true;
+                        return servers;
+                    }
+                }
+            } catch (e) {
+                console.warn('TURN URL fetch failed:', e.message);
+            }
         }
 
         if (!cfg) {
             // No server config available, use public STUN only
-            console.warn('No TURN config from server, using STUN fallback');
+            console.warn('No TURN config available, using STUN fallback');
             S.ice.configSource = 'fallback';
             cachedIce = STUN_FALLBACK;
             iceFetched = true;
@@ -785,6 +810,10 @@ export const cleanup = () => { clearPing(); stopPolling(); S.dc?.close(); S.pc?.
                     connectionMode = 'remote';
                     signalingUrl = modeData.signalingUrl || '';
                     hostId = modeData.hostId || '';
+                    turnUrl = modeData.turnUrl || '';
+                    if (connectEl.signalingUrl) connectEl.signalingUrl.value = signalingUrl;
+                    if (connectEl.hostId) connectEl.hostId.value = hostId;
+                    if (connectEl.turnUrl) connectEl.turnUrl.value = turnUrl;
                     console.info(`Server is in remote mode. Host ID: ${hostId}`);
                 }
                 // Auto-connect since we detected a valid server
