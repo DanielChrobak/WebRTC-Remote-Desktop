@@ -1,0 +1,11 @@
+name = "remote-desktop-signaling"
+main = "src/index.js"
+compatibility_date = "2024-01-01"
+
+# Create your KV namespace with:
+#   wrangler kv:namespace create ROOMS
+# Then replace YOUR_KV_NAMESPACE_ID with the id from the output
+
+[[kv_namespaces]]
+binding = "ROOMS"
+id = "YOUR_KV_NAMESPACE_ID"
