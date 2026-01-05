@@ -415,6 +415,7 @@ public:
             uint32_t currentFid = fid.fetch_add(1, std::memory_order_relaxed);
             PktHdr hd = {f.ts, (uint32_t)f.encUs, currentFid, 0, (uint16_t)n, f.isKey ? (uint8_t)1 : (uint8_t)0};
             size_t bytesSent = 0;
+
             for (size_t i = 0; i < n; i++) {
                 if (i > 0 && (i % 16) == 0 && ch->bufferedAmount() > BTH) {
                     int overflows = consecutiveOverflows.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -425,6 +426,7 @@ public:
                 memcpy(pb.data(), &hd, HDR);
                 size_t o = i * DCK, l = std::min(DCK, sz - o);
                 memcpy(pb.data() + HDR, f.data.data() + o, l);
+
                 if (!SafeSend(pb.data(), HDR + l)) {
                     int overflows = consecutiveOverflows.fetch_add(1, std::memory_order_relaxed) + 1;
                     if (overflows <= 3) WARN("Send failed at chunk %zu/%zu", i, n);
@@ -432,6 +434,7 @@ public:
                 }
                 bytesSent += HDR + l;
             }
+
             if (bytesSent > 0) { bc.fetch_add(bytesSent, std::memory_order_relaxed); sc.fetch_add(1, std::memory_order_relaxed); }
         } catch (const std::exception& e) {
             ERR("Send exception: %s", e.what());

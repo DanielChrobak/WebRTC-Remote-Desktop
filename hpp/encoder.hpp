@@ -19,6 +19,7 @@ class AV1Encoder {
     ID3D11DeviceContext* ctx = nullptr;
     ID3D11Multithread* mt = nullptr;
     ID3D11Texture2D* stg = nullptr;
+    ID3D11Query* encQuery = nullptr;  // GPU sync query for encoder copy
     int w, h, fn = 0;
     UINT stgW = 0, stgH = 0;
     bool hw = false;
@@ -60,6 +61,28 @@ class AV1Encoder {
         return gotData;
     }
 
+    // Wait for GPU copy to complete using query
+    bool WaitForGPUCopy(DWORD timeoutMs = 16) {
+        if (!encQuery) return true;
+        ctx->End(encQuery);
+
+        // Spin-wait with timeout for GPU to complete
+        LARGE_INTEGER start, now, freq;
+        QueryPerformanceCounter(&start);
+        QueryPerformanceFrequency(&freq);
+        int64_t timeoutTicks = (freq.QuadPart * timeoutMs) / 1000;
+
+        while (ctx->GetData(encQuery, nullptr, 0, 0) == S_FALSE) {
+            QueryPerformanceCounter(&now);
+            if ((now.QuadPart - start.QuadPart) > timeoutTicks) {
+                WARN("GPU copy timeout in encoder");
+                return false;
+            }
+            YieldProcessor();
+        }
+        return true;
+    }
+
 public:
     AV1Encoder(int W, int H, int fps, ID3D11Device* d, ID3D11DeviceContext* c, ID3D11Multithread* m)
         : w(W), h(H), dev(d), ctx(c), mt(m) {
@@ -67,6 +90,13 @@ public:
         if (ctx) ctx->AddRef(); else dev->GetImmediateContext(&ctx);
         if (mt) mt->AddRef();
         lk = steady_clock::now() - KI;
+
+        // Create GPU sync query for encoder
+        D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
+        if (FAILED(dev->CreateQuery(&qd, &encQuery))) {
+            WARN("Failed to create encoder GPU sync query");
+            encQuery = nullptr;
+        }
 
         const AVCodec* cd = nullptr;
         for (auto n : {"av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"})
@@ -113,14 +143,14 @@ public:
         if (!hf || !pk) throw std::runtime_error("Alloc failed");
         hf->format = cc->pix_fmt; hf->width = w; hf->height = h;
         if (!hw && av_frame_get_buffer(hf, 32) < 0) throw std::runtime_error("av_frame_get_buffer failed");
-        LOG("Encoder mode: %s", hw ? "Hardware" : "Software");
+        LOG("Encoder mode: %s (with GPU sync)", hw ? "Hardware" : "Software");
     }
 
     ~AV1Encoder() {
         av_packet_free(&pk); av_frame_free(&hf);
         av_buffer_unref(&hfr); av_buffer_unref(&hd);
         if (cc) avcodec_free_context(&cc);
-        SafeRelease(stg, mt, ctx, dev);
+        SafeRelease(encQuery, stg, mt, ctx, dev);
     }
 
     void Flush() {
@@ -137,8 +167,17 @@ public:
 
         if (hw) {
             if (av_hwframe_get_buffer(cc->hw_frames_ctx, hf, 0) < 0) { fc++; return nullptr; }
-            MTLock l(mt);
-            ctx->CopySubresourceRegion((ID3D11Texture2D*)hf->data[0], (UINT)(intptr_t)hf->data[1], 0, 0, 0, tx, 0, 0);
+            {
+                MTLock l(mt);
+                ctx->CopySubresourceRegion((ID3D11Texture2D*)hf->data[0], (UINT)(intptr_t)hf->data[1], 0, 0, 0, tx, 0, 0);
+                // CRITICAL: Wait for GPU copy to complete before encoding
+                // This prevents black frames caused by encoding before copy finishes
+                if (!WaitForGPUCopy(16)) {
+                    fc++;
+                    av_frame_unref(hf);
+                    return nullptr;
+                }
+            }
         } else {
             D3D11_TEXTURE2D_DESC td; tx->GetDesc(&td);
             if (!stg || stgW != td.Width || stgH != td.Height) {
@@ -149,7 +188,7 @@ public:
                 stgW = td.Width; stgH = td.Height;
                 LOG("Created staging texture: %ux%u", stgW, stgH);
             }
-            { MTLock l(mt); ctx->CopyResource(stg, tx); }
+            { MTLock l(mt); ctx->CopyResource(stg, tx); ctx->Flush(); }
             D3D11_MAPPED_SUBRESOURCE mp; HRESULT hr;
             { MTLock l(mt); hr = ctx->Map(stg, 0, D3D11_MAP_READ, 0, &mp); }
             if (FAILED(hr)) { fc++; return nullptr; }
