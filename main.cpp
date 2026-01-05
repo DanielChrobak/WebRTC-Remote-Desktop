@@ -5,6 +5,10 @@
 #include "audio.hpp"
 #include "input.hpp"
 #include "clipboard.hpp"
+#include "signaling.hpp"
+#include <io.h>
+#include <fcntl.h>
+#include <random>
 
 std::vector<MonitorInfo> g_monitors;
 std::mutex g_monitorsMutex;
@@ -29,40 +33,165 @@ void RefreshMonitorList() {
 
 std::string LoadFile(const char* name) { std::ifstream f(name); return f.is_open() ? std::string(std::istreambuf_iterator<char>(f), {}) : ""; }
 
-struct Auth { std::string user, pin; } g_auth;
+struct Config {
+    std::string user, pin;
+    std::string signalingUrl;
+    std::string hostId;
+} g_config;
 
-bool LoadAuth() {
-    try { std::ifstream f("auth.json"); if (!f.is_open()) return false; json j = json::parse(f);
-        if (j.contains("username") && j.contains("pin")) { g_auth = {j["username"], j["pin"]}; return g_auth.user.size() >= 3 && g_auth.pin.size() == 6; }
-    } catch (...) {} return false;
+std::string GenerateHostId() {
+    static const char* letters = "ABCDEFGHJKLMNPQRSTUVWXYZ"; // No I, O (avoid confusion)
+    static const char* digits = "0123456789";
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::string id;
+    for (int i = 0; i < 3; i++) id += letters[gen() % 24];
+    for (int i = 0; i < 3; i++) id += digits[gen() % 10];
+    return id;
 }
 
-bool SaveAuth() { try { std::ofstream f("auth.json"); f << json{{"username", g_auth.user}, {"pin", g_auth.pin}}.dump(2); return true; } catch (...) { return false; } }
+bool LoadConfig() {
+    try {
+        std::ifstream f("auth.json");
+        if (!f.is_open()) return false;
+        json j = json::parse(f);
+        if (j.contains("username") && j.contains("pin")) {
+            g_config.user = j["username"];
+            g_config.pin = j["pin"];
+            if (j.contains("signalingUrl")) g_config.signalingUrl = j["signalingUrl"];
+            if (j.contains("hostId")) g_config.hostId = j["hostId"];
+            return g_config.user.size() >= 3 && g_config.pin.size() == 6;
+        }
+    } catch (...) {}
+    return false;
+}
+
+bool SaveConfig() {
+    try {
+        json j = {
+            {"username", g_config.user},
+            {"pin", g_config.pin}
+        };
+        if (!g_config.signalingUrl.empty()) j["signalingUrl"] = g_config.signalingUrl;
+        if (!g_config.hostId.empty()) j["hostId"] = g_config.hostId;
+        std::ofstream f("auth.json");
+        f << j.dump(2);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 
 bool ValidUser(const std::string& u) { if (u.length() < 3 || u.length() > 32) return false; for (char c : u) if (!isalnum(c) && c != '_' && c != '-') return false; return true; }
 bool ValidPin(const std::string& p) { if (p.length() != 6) return false; for (char c : p) if (c < '0' || c > '9') return false; return true; }
+bool ValidHostId(const std::string& id) {
+    if (id.length() != 6) return false;
+    for (int i = 0; i < 3; i++) if (!isalpha(id[i])) return false;
+    for (int i = 3; i < 6; i++) if (!isdigit(id[i])) return false;
+    return true;
+}
 
-void SetupAuth() {
-    if (LoadAuth()) { printf("\033[32mUsing existing credentials (user: %s)\033[0m\n\n", g_auth.user.c_str()); return; }
-    printf("\n\033[1;36m=== Auth Setup ===\033[0m\n");
-    while (true) { printf("Username (3-32 chars): "); std::getline(std::cin, g_auth.user); if (ValidUser(g_auth.user)) break; printf("\033[31mInvalid\033[0m\n"); }
+void SetupConfig() {
+    if (LoadConfig()) {
+        printf("\033[32mLoaded config (user: %s", g_config.user.c_str());
+        if (!g_config.signalingUrl.empty()) printf(", remote: %s", g_config.hostId.c_str());
+        printf(")\033[0m\n\n");
+        return;
+    }
+
+    printf("\n\033[1;36m=== First Time Setup ===\033[0m\n\n");
+
+    // Username
+    printf("\033[1mAuthentication\033[0m\n");
+    while (true) {
+        printf("  Username (3-32 chars): ");
+        std::getline(std::cin, g_config.user);
+        if (ValidUser(g_config.user)) break;
+        printf("  \033[31mInvalid username\033[0m\n");
+    }
+
+    // PIN
     std::string p2;
-    while (true) { printf("PIN (6 digits): "); std::getline(std::cin, g_auth.pin); if (!ValidPin(g_auth.pin)) { printf("\033[31mInvalid\033[0m\n"); continue; }
-        printf("Confirm PIN: "); std::getline(std::cin, p2); if (g_auth.pin == p2) break; printf("\033[31mMismatch\033[0m\n"); }
-    if (SaveAuth()) printf("\033[32mCredentials saved\033[0m\n\n"); else { printf("\033[31mSave failed\033[0m\n"); SetupAuth(); }
+    while (true) {
+        printf("  PIN (6 digits): ");
+        std::getline(std::cin, g_config.pin);
+        if (!ValidPin(g_config.pin)) { printf("  \033[31mInvalid PIN\033[0m\n"); continue; }
+        printf("  Confirm PIN: ");
+        std::getline(std::cin, p2);
+        if (g_config.pin == p2) break;
+        printf("  \033[31mPINs don't match\033[0m\n");
+    }
+
+    // Signaling Server (optional)
+    printf("\n\033[1mRemote Access (Optional)\033[0m\n");
+    printf("  To enable remote access without port forwarding, enter a signaling server URL.\n");
+    printf("  Example: https://your-signaling-server.workers.dev\n");
+    printf("  Leave blank to use local mode only.\n\n");
+    printf("  Signaling Server URL: ");
+    std::getline(std::cin, g_config.signalingUrl);
+
+    // Trim whitespace
+    while (!g_config.signalingUrl.empty() && (g_config.signalingUrl.front() == ' ' || g_config.signalingUrl.front() == '\t'))
+        g_config.signalingUrl.erase(0, 1);
+    while (!g_config.signalingUrl.empty() && (g_config.signalingUrl.back() == ' ' || g_config.signalingUrl.back() == '\t' || g_config.signalingUrl.back() == '/'))
+        g_config.signalingUrl.pop_back();
+
+    // Add https:// if missing
+    if (!g_config.signalingUrl.empty() &&
+        g_config.signalingUrl.find("https://") != 0 &&
+        g_config.signalingUrl.find("http://") != 0) {
+        g_config.signalingUrl = "https://" + g_config.signalingUrl;
+    }
+
+    // Host ID (only if signaling server is set)
+    if (!g_config.signalingUrl.empty()) {
+        printf("\n  Host ID (3 letters + 3 numbers, e.g., ABC123)\n");
+        printf("  Leave blank to auto-generate: ");
+        std::string hostIdInput;
+        std::getline(std::cin, hostIdInput);
+
+        // Convert to uppercase
+        for (char& c : hostIdInput) c = toupper(c);
+
+        if (hostIdInput.empty()) {
+            g_config.hostId = GenerateHostId();
+            printf("  \033[32mGenerated Host ID: %s\033[0m\n", g_config.hostId.c_str());
+        } else if (ValidHostId(hostIdInput)) {
+            g_config.hostId = hostIdInput;
+        } else {
+            printf("  \033[33mInvalid format, generating one...\033[0m\n");
+            g_config.hostId = GenerateHostId();
+            printf("  \033[32mGenerated Host ID: %s\033[0m\n", g_config.hostId.c_str());
+        }
+    }
+
+    if (SaveConfig())
+        printf("\n\033[32mConfiguration saved to auth.json\033[0m\n\n");
+    else {
+        printf("\n\033[31mFailed to save configuration\033[0m\n");
+        SetupConfig();
+    }
 }
 
 int main() {
     try {
+        // Set console to UTF-8 mode for proper character display
+        SetConsoleOutputCP(CP_UTF8);
+        SetConsoleCP(CP_UTF8);
+
         HANDLE ho = GetStdHandle(STD_OUTPUT_HANDLE);
         if (ho != INVALID_HANDLE_VALUE) { DWORD md = 0; if (GetConsoleMode(ho, &md)) SetConsoleMode(ho, md | ENABLE_VIRTUAL_TERMINAL_PROCESSING); }
         puts("\n\033[1;36m=== Remote Desktop Server ===\033[0m\n");
-        SetupAuth();
+        SetupConfig();
+
+        const int PORT = 6060;
+        bool remoteEnabled = !g_config.signalingUrl.empty();
+
         SetPriorityClass(GetCurrentProcess(), ABOVE_NORMAL_PRIORITY_CLASS);
 
         FrameSlot slot;
         auto rtc = std::make_shared<WebRTCServer>();
-        rtc->SetAuthCredentials(g_auth.user, g_auth.pin);
+        rtc->SetAuthCredentials(g_config.user, g_config.pin);
 
         ScreenCapture cap(&slot);
         std::unique_ptr<AV1Encoder> enc; std::mutex em; std::atomic<bool> er{false}, run{true};
@@ -93,7 +222,6 @@ int main() {
         rtc->SetGetHostFpsCallback([&cap] { return cap.RefreshHostFPS(); });
         rtc->SetAuthenticatedCallback([&clip, &input] {
             if (clip) clip->SendCurrentClipboard();
-            // Wiggle cursor at center to help trigger keyframe on connection
             std::thread([&input] {
                 std::this_thread::sleep_for(100ms);
                 input.WiggleCenter();
@@ -105,7 +233,6 @@ int main() {
             bool ok = cap.SwitchMonitor(i);
             if (ok) {
                 updateBounds(i);
-                // Wiggle cursor at center to help trigger keyframe on monitor switch
                 std::thread([&input] {
                     std::this_thread::sleep_for(100ms);
                     input.WiggleCenter();
@@ -115,29 +242,107 @@ int main() {
         });
         rtc->SetDisconnectCallback([&cap] { cap.PauseCapture(); });
 
+        // Signaling client for remote mode (if enabled)
+        std::unique_ptr<SignalingClient> signaling;
+
+        if (remoteEnabled) {
+            signaling = std::make_unique<SignalingClient>(g_config.signalingUrl, g_config.hostId);
+
+            signaling->SetOnOffer([&rtc, &signaling](const json& offer, const std::vector<json>& clientIce, const std::string& sessionId) {
+                LOG("Processing offer (session: %s)", sessionId.c_str());
+                rtc->SetRemote(offer["sdp"].get<std::string>(), "offer");
+                std::string answer = rtc->GetLocal();
+                if (answer.empty()) {
+                    ERR("Failed to generate answer");
+                    return;
+                }
+                size_t p = answer.find("a=setup:actpass");
+                if (p != std::string::npos) answer.replace(p, 15, "a=setup:active");
+                signaling->SendAnswer(answer);
+            });
+
+            signaling->SetOnClientIce([&rtc](const std::vector<json>& ice) {
+                LOG("Received %zu trickled ICE candidates", ice.size());
+            });
+
+            signaling->Start();
+        }
+
+        // HTTP server for serving static files and local WebRTC signaling
         httplib::Server srv;
         srv.set_post_routing_handler([](auto&, auto& r) {
-            r.set_header("Access-Control-Allow-Origin", "*"); r.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-            r.set_header("Access-Control-Allow-Headers", "Content-Type"); r.set_header("Cache-Control", "no-cache");
+            r.set_header("Access-Control-Allow-Origin", "*");
+            r.set_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+            r.set_header("Access-Control-Allow-Headers", "Content-Type");
+            r.set_header("Cache-Control", "no-cache");
         });
         srv.Options(".*", [](auto&, auto& r) { r.status = 204; });
+
+        // Static file routes
         srv.Get("/", [](auto&, auto& r) { auto c = LoadFile("index.html"); r.set_content(c.empty() ? "<h1>index.html not found</h1>" : c, "text/html"); });
         srv.Get("/styles.css", [](auto&, auto& r) { r.set_content(LoadFile("styles.css"), "text/css"); });
         for (const char* js : {"clipboard", "input", "media", "network", "renderer", "state", "ui"})
             srv.Get(std::string("/js/") + js + ".js", [js](auto&, auto& r) { r.set_content(LoadFile((std::string("js/") + js + ".js").c_str()), "application/javascript"); });
         srv.Get("/api/turn", [rtc](auto&, auto& r) { try { r.set_content(rtc->GetTurnConfigJson().dump(), "application/json"); } catch (...) { r.status = 500; } });
-        srv.Post("/offer", [rtc](auto& q, auto& r) {
-            try { auto j = json::parse(q.body); rtc->SetRemote(j["sdp"], j["type"]);
-                std::string d = rtc->GetLocal(); if (d.empty()) { r.status = 500; return; }
-                size_t p = d.find("a=setup:actpass"); if (p != std::string::npos) d.replace(p, 15, "a=setup:active");
-                r.set_content(json{{"sdp", d}, {"type", "answer"}}.dump(), "application/json");
-            } catch (...) { r.status = 500; }
+
+        // Local WebRTC signaling via HTTP
+        srv.Post("/api/offer", [&rtc](const httplib::Request& req, httplib::Response& res) {
+            try {
+                auto body = json::parse(req.body);
+                std::string offerSdp = body["sdp"].get<std::string>();
+
+                LOG("Received offer from client (local)");
+                rtc->SetRemote(offerSdp, "offer");
+
+                std::string answer = rtc->GetLocal();
+                if (answer.empty()) {
+                    res.status = 500;
+                    res.set_content(R"({"error":"Failed to generate answer"})", "application/json");
+                    return;
+                }
+
+                // Fix SDP for proper answering
+                size_t p = answer.find("a=setup:actpass");
+                if (p != std::string::npos) answer.replace(p, 15, "a=setup:active");
+
+                json response = {{"sdp", answer}, {"type", "answer"}};
+                res.set_content(response.dump(), "application/json");
+                LOG("Sent answer to client (local)");
+            } catch (const std::exception& e) {
+                ERR("Offer error: %s", e.what());
+                res.status = 400;
+                res.set_content(R"({"error":"Invalid offer"})", "application/json");
+            }
         });
 
-        std::thread st([&] { srv.listen("0.0.0.0", 6060); });
+        // Connection mode info endpoint
+        srv.Get("/api/mode", [&signaling, remoteEnabled](auto&, auto& r) {
+            json response = {{"mode", "local"}};
+            if (remoteEnabled && signaling) {
+                response["remoteEnabled"] = true;
+                response["hostId"] = signaling->GetHostId();
+                response["signalingUrl"] = signaling->GetWorkerUrl();
+            }
+            r.set_content(response.dump(), "application/json");
+        });
+
+        std::thread st([&] { srv.listen("0.0.0.0", PORT); });
         std::this_thread::sleep_for(100ms);
-        puts("\033[1;32mServer: http://localhost:6060\033[0m\n");
-        LOG("Display: %dHz", cap.GetHostFPS());
+
+        // Print connection info
+        printf("\n");
+        printf("\033[1;36m==========================================\033[0m\n");
+        printf("\033[1;36m         REMOTE DESKTOP SERVER            \033[0m\n");
+        printf("\033[1;36m==========================================\033[0m\n\n");
+        printf("  \033[1mLocal:\033[0m  http://localhost:%d\n", PORT);
+        if (remoteEnabled) {
+            printf("  \033[1mRemote:\033[0m Host ID: \033[32m%s\033[0m\n", signaling->GetHostId().c_str());
+            printf("          Server:  %s\n", g_config.signalingUrl.c_str());
+        } else {
+            printf("  \033[33mRemote access disabled (no signaling server configured)\033[0m\n");
+        }
+        printf("\n  User: %s | Display: %dHz\n", g_config.user.c_str(), cap.GetHostFPS());
+        printf("\033[1;36m==========================================\033[0m\n\n");
 
         if (aud) aud->Start();
 

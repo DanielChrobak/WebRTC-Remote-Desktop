@@ -64,6 +64,16 @@ body{font-family:system-ui,-apple-system,'Segoe UI',sans-serif;background:var(--
 .auth-btn:active{transform:translateY(0)}
 .auth-btn:disabled{opacity:.5;cursor:not-allowed;transform:none}
 
+/* Connection Modal Additions */
+.connect-container{max-width:320px}
+.connect-tabs{display:flex;gap:4px;margin-bottom:16px;background:var(--s2);border-radius:var(--r);padding:4px}
+.connect-tab{flex:1;padding:8px 12px;background:transparent;border:none;border-radius:6px;color:var(--t2);font-size:12px;font-weight:600;cursor:pointer;transition:var(--e)}
+.connect-tab:hover{color:var(--t1)}
+.connect-tab.active{background:var(--s3);color:var(--t1)}
+.connect-panel{width:100%}
+.connect-panel.hidden{display:none}
+.connect-info{font-size:11px;color:var(--t3);margin-bottom:12px;line-height:1.4}
+
 /* Edge & Panel */
 .edge{position:fixed;right:0;top:50%;transform:translateY(-50%);width:3px;height:32px;background:rgba(255,255,255,.05);border-radius:3px 0 0 3px;opacity:0;cursor:pointer;z-index:100;transition:all .3s;border:none}
 .edge::before{content:'';position:absolute;inset:-30px -15px -30px -50px}

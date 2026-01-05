@@ -15,6 +15,7 @@ find_package(LibDataChannel REQUIRED)
 find_package(httplib REQUIRED)
 find_package(nlohmann_json REQUIRED)
 find_package(Opus REQUIRED)
+find_package(OpenSSL REQUIRED)
 find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
 find_library(AVCODEC_LIBRARY avcodec)
 find_path(AVUTIL_INCLUDE_DIR libavutil/avutil.h)
@@ -51,6 +52,9 @@ set(CONFIG_FILES
 
 add_executable(ScreenShare ${SOURCES} ${HEADERS})
 
+# Enable OpenSSL support for cpp-httplib
+target_compile_definitions(ScreenShare PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+
 target_include_directories(ScreenShare PRIVATE
     ${AVCODEC_INCLUDE_DIR}
     ${AVUTIL_INCLUDE_DIR}
@@ -62,6 +66,8 @@ target_link_libraries(ScreenShare PRIVATE
     httplib::httplib
     nlohmann_json::nlohmann_json
     Opus::opus
+    OpenSSL::SSL
+    OpenSSL::Crypto
     ${AVCODEC_LIBRARY}
     ${AVUTIL_LIBRARY}
 )
