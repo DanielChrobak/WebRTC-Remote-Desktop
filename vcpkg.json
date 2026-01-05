@@ -1,0 +1,13 @@
+{
+  "name": "screenshare",
+  "dependencies": [
+    "libdatachannel",
+    "cpp-httplib",
+    "nlohmann-json",
+    "opus",
+    {
+      "name": "ffmpeg",
+      "features": ["aom", "vpx", "nvcodec", "qsv", "amf", "avcodec", "avformat", "swscale"]
+    }
+  ]
+}
