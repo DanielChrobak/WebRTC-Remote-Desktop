@@ -5,7 +5,10 @@ let absX = 0.5, absY = 0.5, tStartX = 0, tStartY = 0, tStartT = 0, tMoved = fals
 let lastTX = 0, lastTY = 0, tId = null, lpTimer = null, tf2Start = 0, tf2Active = false;
 let pinch = false, pinchPending = false, pinchDist = 0, pinchScale = 1;
 let scroll = false, scrollPending = false, lastScrollX = 0, lastScrollY = 0, scrollAccX = 0, scrollAccY = 0;
-const SCROLL_THRESH = 8, SCROLL_SENS = 2.5, BMAP = { 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 };
+// Two-finger tap tracking
+let tf2StartX = 0, tf2StartY = 0, tf2TotalMove = 0;
+const SCROLL_THRESH = 20, SCROLL_SENS = 2.5, TAP2_GRACE_MS = 80, TAP2_MOVE_THRESH = 30;
+const BMAP = { 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 };
 
 const send = (type, ...a) => {
     if ((!S.controlEnabled && !S.touchEnabled) || S.dc?.readyState !== 'open') return;
@@ -77,9 +80,22 @@ const tStart = e => {
     if (!S.touchEnabled) return;
     const ts = e.touches;
     if (ts.length === 2) {
-        tf2Start = tf2Start || Math.min(performance.now(), tStartT || performance.now()); tf2Active = true; clearLp(); tMoved = true;
-        if (S.touchMode === 'trackpad') { pinchPending = scrollPending = true; pinchDist = dist2(ts[0], ts[1]); pinchScale = S.zoom;
-            lastScrollX = (ts[0].clientX + ts[1].clientX) / 2; lastScrollY = (ts[0].clientY + ts[1].clientY) / 2; scrollAccX = scrollAccY = 0; tId = null; tDrag = false; }
+        const now = performance.now();
+        tf2Start = tf2Start || Math.min(now, tStartT || now);
+        tf2Active = true;
+        clearLp();
+        tMoved = true;
+        if (S.touchMode === 'trackpad') {
+            pinchPending = scrollPending = true;
+            pinchDist = dist2(ts[0], ts[1]);
+            pinchScale = S.zoom;
+            lastScrollX = tf2StartX = (ts[0].clientX + ts[1].clientX) / 2;
+            lastScrollY = tf2StartY = (ts[0].clientY + ts[1].clientY) / 2;
+            scrollAccX = scrollAccY = 0;
+            tf2TotalMove = 0;
+            tId = null;
+            tDrag = false;
+        }
         e.preventDefault(); return;
     }
     if (tId !== null) return;
@@ -95,8 +111,28 @@ const tMove = e => {
     if (ts.length === 2 && S.touchMode === 'trackpad') {
         if (!pinchPending && !pinch && !scrollPending && !scroll) return;
         const nd = dist2(ts[0], ts[1]), dd = Math.abs(nd - pinchDist);
-        const cx = (ts[0].clientX + ts[1].clientX) / 2, cy = (ts[0].clientY + ts[1].clientY) / 2, sdx = cx - lastScrollX, sdy = cy - lastScrollY;
-        if (!pinch && !scroll) { if (dd > 15) { pinch = true; scrollPending = false; console.info('Pinch started'); } else if (Math.abs(sdx) > SCROLL_THRESH || Math.abs(sdy) > SCROLL_THRESH) { scroll = true; pinchPending = false; console.info('Two-finger scroll started'); } }
+        const cx = (ts[0].clientX + ts[1].clientX) / 2, cy = (ts[0].clientY + ts[1].clientY) / 2;
+        const sdx = cx - lastScrollX, sdy = cy - lastScrollY;
+
+        // Track total movement from start for tap detection
+        tf2TotalMove = Math.hypot(cx - tf2StartX, cy - tf2StartY);
+
+        // Only start detecting scroll/pinch after grace period
+        const elapsed = performance.now() - tf2Start;
+        const pastGrace = elapsed > TAP2_GRACE_MS;
+
+        if (!pinch && !scroll && pastGrace) {
+            // Use higher threshold and require movement from original position
+            if (dd > 25) {
+                pinch = true;
+                scrollPending = false;
+                console.info('Pinch started');
+            } else if (tf2TotalMove > SCROLL_THRESH) {
+                scroll = true;
+                pinchPending = false;
+                console.info('Two-finger scroll started');
+            }
+        }
         if (pinch) { const ns = Math.max(C.MIN_ZOOM, Math.min(C.MAX_ZOOM, pinchScale + (nd - pinchDist) * C.PINCH_SENS)); if (Math.abs(ns - S.zoom) > 0.01) { S.zoom = ns; ns > 1 ? updateZoom() : (S.zoomX = S.zoomY = 0); renderZoomed(); updateTouchUI(); } }
         if (scroll) { scrollAccX += sdx; scrollAccY += sdy; let sx = 0, sy = 0; if (Math.abs(scrollAccX) >= 1) { sx = scrollAccX * SCROLL_SENS; scrollAccX = 0; } if (Math.abs(scrollAccY) >= 1) { sy = -scrollAccY * SCROLL_SENS; scrollAccY = 0; } (sx || sy) && send('wheel', sx, sy); lastScrollX = cx; lastScrollY = cy; }
         e.preventDefault(); return;
@@ -117,8 +153,21 @@ const tEnd = e => {
         if (ts.length < 2) { pinchPending = scrollPending = false;
             if (pinch) { pinch = tf2Active = false; tf2Start = 0; console.info(`Pinch ended: ${S.zoom.toFixed(2)}x`); if (S.zoom < 1.05) { S.zoom = 1; S.zoomX = S.zoomY = 0; renderZoomed(); } updateTouchUI(); }
             if (scroll) { scroll = tf2Active = false; tf2Start = 0; scrollAccX = scrollAccY = 0; console.info('Two-finger scroll ended'); } } }
-    if (tf2Active && ts.length === 0 && !pinch && !scroll) { if (performance.now() - tf2Start < C.TAP_MS * 1.5) { send('btn', 1, true); setTimeout(() => send('btn', 1, false), 50); console.info('Two-finger tap (right click)'); } tf2Start = 0; tf2Active = false; }
-    else if (ts.length === 0) { tf2Start = 0; tf2Active = false; }
+    // Two-finger tap detection - more lenient: allow if not actively scrolling/pinching and movement was small
+    if (tf2Active && ts.length === 0 && !pinch && !scroll) {
+        const duration = performance.now() - tf2Start;
+        const isQuickTap = duration < C.TAP_MS * 2; // 400ms window
+        const isSmallMove = tf2TotalMove < TAP2_MOVE_THRESH;
+        if (isQuickTap && isSmallMove) {
+            send('btn', 1, true);
+            setTimeout(() => send('btn', 1, false), 50);
+            console.info('Two-finger tap (right click)');
+        }
+        tf2Start = 0;
+        tf2Active = false;
+        tf2TotalMove = 0;
+    }
+    else if (ts.length === 0) { tf2Start = 0; tf2Active = false; tf2TotalMove = 0; }
     if (!ct.some(t => t.identifier === tId)) return;
     clearLp();
     if (!tMoved && !tf2Active && performance.now() - tStartT < C.TAP_MS) { send('btn', 0, true); setTimeout(() => send('btn', 0, false), 50); console.info('Tap'); }
@@ -126,7 +175,7 @@ const tEnd = e => {
     tId = null; tDrag = false; e.preventDefault();
 };
 
-const tCancel = () => { clearLp(); tDrag && (send('btn', 0, false), console.info('Touch cancelled')); tId = null; tDrag = pinch = pinchPending = tf2Active = scroll = scrollPending = false; tf2Start = scrollAccX = scrollAccY = 0; };
+const tCancel = () => { clearLp(); tDrag && (send('btn', 0, false), console.info('Touch cancelled')); tId = null; tDrag = pinch = pinchPending = tf2Active = scroll = scrollPending = false; tf2Start = scrollAccX = scrollAccY = 0; tf2TotalMove = 0; };
 
 export const enableTouch = () => {
     if (S.touchEnabled) return; S.touchEnabled = true; S.touchX = S.touchY = 0.5; S.zoom = 1; S.zoomX = S.zoomY = 0;

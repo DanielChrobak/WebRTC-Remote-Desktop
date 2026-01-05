@@ -8,12 +8,42 @@ export const MSG = {
 };
 
 export const C = {
-    HEADER: 21, AUDIO_HEADER: 16, PING_MS: 200, CODEC: 'av01.0.05M.08',
-    MAX_FRAMES: 6, FRAME_TIMEOUT_MS: 100, AUDIO_RATE: 48000, AUDIO_CH: 2, AUDIO_BUF: 0.04,
-    DC: { ordered: false, maxRetransmits: 2 },
-    TOUCH_SENS: 0.5, TAP_MS: 200, TAP_THRESH: 10, LONG_MS: 400,
-    MIN_ZOOM: 1, MAX_ZOOM: 5, PINCH_SENS: 0.01,
-    MAX_CLIPBOARD_SIZE: 10485760, MAX_CLIPBOARD_TEXT: 1048576
+    HEADER: 21,
+    AUDIO_HEADER: 16,
+    PING_MS: 200,
+    CODEC: 'av01.0.05M.08',
+
+    // Frame buffering - tuned for low latency
+    MAX_FRAMES: 8,               // Reduced for lower latency
+    FRAME_TIMEOUT_MS: 150,       // Aggressive timeout for low latency
+
+    // Smart frame dropping thresholds
+    COMPLETION_THRESHOLD: 0.9,   // Only keep nearly-complete frames
+    MAX_FRAME_LAG: 2,            // Drop frames quickly if behind
+    KEYFRAME_GRACE_MS: 300,      // Reduced grace for keyframes
+
+    // Audio settings
+    AUDIO_RATE: 48000,
+    AUDIO_CH: 2,
+    AUDIO_BUF: 0.02,             // Minimal audio buffer for low latency
+
+    // DataChannel config - unreliable, unordered for lowest latency (no retransmits)
+    DC: { ordered: false, maxRetransmits: 0 },
+
+    // Touch settings
+    TOUCH_SENS: 0.5,
+    TAP_MS: 200,
+    TAP_THRESH: 10,
+    LONG_MS: 400,
+
+    // Zoom settings
+    MIN_ZOOM: 1,
+    MAX_ZOOM: 5,
+    PINCH_SENS: 0.01,
+
+    // Clipboard limits
+    MAX_CLIPBOARD_SIZE: 10485760,
+    MAX_CLIPBOARD_TEXT: 1048576
 };
 
 export const Stage = { IDLE: 'idle', ICE: 'ice', SIGNAL: 'signal', CONNECT: 'connect', AUTH: 'auth', STREAM: 'stream', OK: 'connected', ERR: 'error' };
@@ -33,6 +63,7 @@ export const S = {
     lat: { encode: [], network: [], decode: [], queue: [], render: [] },
     jitter: { last: 0, deltas: [] },
     chunks: new Map(), frameMeta: new Map(), lastFrameId: 0, lastProcessedCapTs: 0,
+    newestFrameId: 0,  // Track the highest frame ID we've seen
     clipboardEnabled: false, clipboardLastSentHash: 0n
 };
 
