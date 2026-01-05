@@ -27,6 +27,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <queue>
+#include <sstream>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
