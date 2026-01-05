@@ -127,10 +127,46 @@ int main() {
         std::thread at([&] { if (!aud) return; SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST); AudioPacket pk;
             while (run) { if (!rtc->IsConnected() || !rtc->IsAuthenticated() || !rtc->IsFpsReceived()) { std::this_thread::sleep_for(10ms); continue; } if (aud->PopPacket(pk, 5)) rtc->SendAudio(pk.data, pk.ts, pk.samples); } });
 
-        std::thread tt([&] { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL); uint64_t fp[10] = {}; int i = 0;
-            while (run) { std::this_thread::sleep_for(1s); auto s = rtc->GetStats(); uint64_t ef = 0; { std::lock_guard<std::mutex> lk(em); if (enc) ef = enc->GetEncoded(); }
-                fp[i++ % 10] = ef; int n = std::min(i, 10); uint64_t sm = 0; for (int j = 0; j < n; j++) sm += fp[j];
-                printf("%s FPS: %3llu @ %d | %5.2f Mbps | V:%4llu A:%3llu | Avg: %.1f\n", s.conn ? (rtc->IsAuthenticated() ? (rtc->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT]\033[0m") : "\033[33m[AUTH]\033[0m") : "\033[33m[WAIT]\033[0m", ef, cap.GetCurrentFPS(), s.bytes * 8.0 / 1048576.0, s.sent, rtc->GetAudioSent(), n > 0 ? (double)sm / n : 0); } });
+        std::thread tt([&] {
+            SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+            uint64_t fp[10] = {}; int i = 0;
+            while (run) {
+                std::this_thread::sleep_for(1s);
+                auto s = rtc->GetStats();
+                auto dbg = rtc->GetDebugStats();
+                uint64_t ef = 0;
+                { std::lock_guard<std::mutex> lk(em); if (enc) ef = enc->GetEncoded(); }
+                fp[i++ % 10] = ef;
+                int n = std::min(i, 10);
+                uint64_t sm = 0;
+                for (int j = 0; j < n; j++) sm += fp[j];
+
+                // Status indicator
+                const char* status = s.conn
+                    ? (rtc->IsAuthenticated()
+                        ? (rtc->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT]\033[0m")
+                        : "\033[33m[AUTH]\033[0m")
+                    : "\033[33m[WAIT]\033[0m";
+
+                // Basic stats line
+                printf("%s FPS: %3llu @ %d | %5.2f Mbps | V:%4llu A:%3llu | Avg: %.1f",
+                    status, ef, cap.GetCurrentFPS(), s.bytes * 8.0 / 1048576.0,
+                    s.sent, rtc->GetAudioSent(), n > 0 ? (double)sm / n : 0);
+
+                // Debug info if there are issues
+                if (s.dropped > 0 || dbg.bufferOverflows > 0 || dbg.sendFails > 0 || dbg.midFrameDrops > 0) {
+                    printf(" | \033[33mDROP:%llu BUF:%llu FAIL:%llu MID:%llu\033[0m",
+                        s.dropped, dbg.bufferOverflows, dbg.sendFails, dbg.midFrameDrops);
+                }
+
+                // Max buffer usage (useful for debugging)
+                if (dbg.maxBuffered > 16384) {
+                    printf(" | \033[33mMAX_BUF:%zu\033[0m", dbg.maxBuffered);
+                }
+
+                printf("\n");
+            }
+        });
 
         std::thread et([&] { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL); FrameData fd; bool was = false;
             while (run) {
