@@ -12,7 +12,6 @@ html,body{height:100dvh;overflow:hidden;overscroll-behavior:none}
 body{font-family:'Inter',-apple-system,sans-serif;background:var(--s0);color:var(--t1);-webkit-font-smoothing:antialiased;touch-action:none}
 #c{position:fixed;inset:0;width:100vw;height:100dvh;background:var(--s0);z-index:1;touch-action:none}
 
-/* Loading Overlay */
 .loading-overlay{position:fixed;inset:0;background:var(--s0);z-index:1000;display:flex;align-items:center;justify-content:center;transition:opacity .4s ease,visibility .4s ease}
 .loading-overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .loading-container{display:flex;flex-direction:column;align-items:center;gap:24px;padding:40px;max-width:400px;text-align:center}
@@ -38,11 +37,9 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--s0);color:var
 .stage.active .stage-label{color:var(--t1)}
 @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.9)}}
 
-/* Reconnecting state */
 .loading-overlay.reconnecting .loading-status{color:var(--wn)}
 .loading-overlay.reconnecting .spinner-ring:nth-child(1){border-top-color:var(--wn)}
 
-/* Authentication Modal */
 .auth-overlay{position:fixed;inset:0;background:var(--s0);z-index:1001;display:flex;align-items:center;justify-content:center;opacity:0;visibility:hidden;transition:opacity .3s ease,visibility .3s ease}
 .auth-overlay.visible{opacity:1;visibility:visible}
 .auth-container{display:flex;flex-direction:column;align-items:center;padding:40px;max-width:380px;width:90%;text-align:center}

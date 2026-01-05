@@ -249,6 +249,7 @@ int main() {
                 uint64_t ef = 0, ef2 = 0;
                 { std::lock_guard<std::mutex> lk(em); if (enc) { ef = enc->GetEncoded(); ef2 = enc->GetFailed(); } }
                 uint64_t sd = slot.GetDropped();
+                uint64_t tc = cap.GetTexConflicts();
                 uint64_t as = rtc->GetAudioSent();
                 auto is = input.GetStats();
                 fp[i++ % 10] = ef;
@@ -258,24 +259,43 @@ int main() {
                     s.conn ? (rtc->IsAuthenticated() ? (rtc->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT FPS]\033[0m") : "\033[33m[AUTH]\033[0m") : "\033[33m[WAIT]\033[0m",
                     ef, cap.GetCurrentFPS(), s.bytes * 8.0 / 1048576.0, s.sent, as);
                 if (is.moves + is.clicks + is.keys) printf(" | \033[36mInput: m=%llu c=%llu k=%llu\033[0m", is.moves, is.clicks, is.keys);
-                if (sd + s.dropped + ef2) printf(" | \033[31mDrop: c=%llu n=%llu e=%llu\033[0m", sd, s.dropped, ef2);
+                if (sd + s.dropped + ef2 + tc) printf(" | \033[31mDrop: c=%llu n=%llu e=%llu t=%llu\033[0m", sd, s.dropped, ef2, tc);
                 printf(" | Avg: %.1f\n", n > 0 ? (double)sm / n : 0);
             }
         });
 
         std::thread et([&] {
             SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
-            FrameData fd; bool was = false; uint64_t lf = 0;
+            FrameData fd; bool was = false;
             while (run) {
                 if (!rtc->IsConnected() || !rtc->IsAuthenticated() || !rtc->IsFpsReceived() || !er) { std::this_thread::sleep_for(10ms); was = false; continue; }
                 if (!slot.Pop(fd)) continue;
                 bool c = rtc->IsConnected() && rtc->IsAuthenticated() && rtc->IsFpsReceived() && er;
                 if (c && !was) { LOG("Client authenticated and streaming at %d FPS", rtc->GetCurrentFps()); std::lock_guard<std::mutex> lk(em); if (enc) enc->Flush(); }
                 was = c;
-                if (!c || !fd.tex) { fd.Release(); continue; }
-                if (fd.fence > lf && !cap.IsReady(fd.fence)) cap.WaitReady(fd.fence);
-                lf = fd.fence;
-                { std::lock_guard<std::mutex> lk(em); if (enc) if (auto* o = enc->Encode(fd.tex, fd.ts, rtc->NeedsKey())) rtc->Send(*o); }
+                if (!c || !fd.tex) {
+                    slot.MarkReleased(fd.poolIdx);  // Mark pool texture as available
+                    fd.Release();
+                    continue;
+                }
+                // Always wait for GPU to complete the copy for this frame's texture
+                if (fd.fence > 0 && !cap.IsReady(fd.fence)) {
+                    if (!cap.WaitReady(fd.fence)) {
+                        WARN("GPU fence wait timeout, skipping frame");
+                        slot.MarkReleased(fd.poolIdx);  // Mark pool texture as available
+                        fd.Release();
+                        continue;
+                    }
+                }
+                {
+                    std::lock_guard<std::mutex> lk(em);
+                    if (enc) {
+                        if (auto* o = enc->Encode(fd.tex, fd.ts, rtc->NeedsKey())) {
+                            rtc->Send(*o);
+                        }
+                    }
+                }
+                slot.MarkReleased(fd.poolIdx);  // Mark pool texture as available after encoding
                 fd.Release();
             }
         });
