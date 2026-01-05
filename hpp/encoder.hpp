@@ -2,31 +2,19 @@
 #include "common.hpp"
 
 struct EncodedFrame {
-    std::vector<uint8_t> data;
-    int64_t ts = 0, encUs = 0;
-    bool isKey = false;
-    EncodedFrame() { data.reserve(512 * 1024); }
+    std::vector<uint8_t> data; int64_t ts = 0, encUs = 0; bool isKey = false;
     void Clear() { data.clear(); ts = encUs = 0; isKey = false; }
 };
 
 class AV1Encoder {
-    AVCodecContext* cc = nullptr;
-    AVFrame* hf = nullptr;
-    AVPacket* pk = nullptr;
-    AVBufferRef* hd = nullptr;
-    AVBufferRef* hfr = nullptr;
-    ID3D11Device* dev = nullptr;
-    ID3D11DeviceContext* ctx = nullptr;
-    ID3D11Multithread* mt = nullptr;
-    ID3D11Texture2D* stg = nullptr;
-    ID3D11Query* encQuery = nullptr;  // GPU sync query for encoder copy
-    int w, h, fn = 0;
-    UINT stgW = 0, stgH = 0;
-    bool hw = false;
+    AVCodecContext* cc = nullptr; AVFrame* hf = nullptr; AVPacket* pk = nullptr;
+    AVBufferRef* hd = nullptr; AVBufferRef* hfr = nullptr;
+    ID3D11Device* dev = nullptr; ID3D11DeviceContext* ctx = nullptr; ID3D11Multithread* mt = nullptr;
+    ID3D11Texture2D* stg = nullptr; ID3D11Query* encQuery = nullptr;
+    int w, h, fn = 0; UINT stgW = 0, stgH = 0; bool hw = false;
     steady_clock::time_point lk;
     static constexpr auto KI = 2000ms;
-    EncodedFrame out[2];
-    int oi = 0;
+    EncodedFrame out[2]; int oi = 0;
     std::atomic<uint64_t> ec{0}, fc{0};
     static inline const int64_t qf = []{ LARGE_INTEGER f; QueryPerformanceFrequency(&f); return f.QuadPart; }();
 
@@ -46,38 +34,14 @@ class AV1Encoder {
         return true;
     }
 
-    void SetOpts(std::initializer_list<std::pair<const char*, const char*>> opts) {
-        for (auto& [k, v] : opts) av_opt_set(cc->priv_data, k, v, 0);
-    }
-
-    bool DrainPackets(EncodedFrame* o, bool& gotKey) {
-        bool gotData = false;
-        while (avcodec_receive_packet(cc, pk) == 0) {
-            if (pk->flags & AV_PKT_FLAG_KEY) gotKey = true;
-            o->data.insert(o->data.end(), pk->data, pk->data + pk->size);
-            av_packet_unref(pk);
-            gotData = true;
-        }
-        return gotData;
-    }
-
-    // Wait for GPU copy to complete using query
-    bool WaitForGPUCopy(DWORD timeoutMs = 16) {
+    bool WaitGPU(DWORD ms = 16) {
         if (!encQuery) return true;
         ctx->End(encQuery);
-
-        // Spin-wait with timeout for GPU to complete
-        LARGE_INTEGER start, now, freq;
-        QueryPerformanceCounter(&start);
-        QueryPerformanceFrequency(&freq);
-        int64_t timeoutTicks = (freq.QuadPart * timeoutMs) / 1000;
-
+        LARGE_INTEGER start, now, freq; QueryPerformanceCounter(&start); QueryPerformanceFrequency(&freq);
+        int64_t timeout = (freq.QuadPart * ms) / 1000;
         while (ctx->GetData(encQuery, nullptr, 0, 0) == S_FALSE) {
             QueryPerformanceCounter(&now);
-            if ((now.QuadPart - start.QuadPart) > timeoutTicks) {
-                WARN("GPU copy timeout in encoder");
-                return false;
-            }
+            if ((now.QuadPart - start.QuadPart) > timeout) return false;
             YieldProcessor();
         }
         return true;
@@ -86,17 +50,9 @@ class AV1Encoder {
 public:
     AV1Encoder(int W, int H, int fps, ID3D11Device* d, ID3D11DeviceContext* c, ID3D11Multithread* m)
         : w(W), h(H), dev(d), ctx(c), mt(m) {
-        dev->AddRef();
-        if (ctx) ctx->AddRef(); else dev->GetImmediateContext(&ctx);
-        if (mt) mt->AddRef();
-        lk = steady_clock::now() - KI;
-
-        // Create GPU sync query for encoder
-        D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0};
-        if (FAILED(dev->CreateQuery(&qd, &encQuery))) {
-            WARN("Failed to create encoder GPU sync query");
-            encQuery = nullptr;
-        }
+        dev->AddRef(); if (ctx) ctx->AddRef(); else dev->GetImmediateContext(&ctx);
+        if (mt) mt->AddRef(); lk = steady_clock::now() - KI;
+        D3D11_QUERY_DESC qd = {D3D11_QUERY_EVENT, 0}; dev->CreateQuery(&qd, &encQuery);
 
         const AVCodec* cd = nullptr;
         for (auto n : {"av1_nvenc", "av1_qsv", "av1_amf", "libsvtav1", "libaom-av1"})
@@ -113,37 +69,38 @@ public:
         cc->flags |= AV_CODEC_FLAG_LOW_DELAY; cc->flags2 |= AV_CODEC_FLAG2_FAST;
         cc->delay = cc->has_b_frames = 0;
         cc->thread_count = hw ? 1 : std::min(4, std::max(1, (int)std::thread::hardware_concurrency() / 2));
-        if (!hw) LOG("Software encoder using %d threads", cc->thread_count);
 
+        auto set = [&](std::initializer_list<std::pair<const char*, const char*>> opts) {
+            for (auto& [k, v] : opts) av_opt_set(cc->priv_data, k, v, 0);
+        };
         if (!strcmp(cd->name, "av1_nvenc"))
-            SetOpts({{"preset", "p1"}, {"tune", "ull"}, {"rc", "cbr"}, {"cq", "23"}, {"delay", "0"},
-                    {"zerolatency", "1"}, {"lookahead", "0"}, {"rc-lookahead", "0"}, {"forced-idr", "1"},
-                    {"b_adapt", "0"}, {"spatial-aq", "0"}, {"temporal-aq", "0"}, {"nonref_p", "1"},
-                    {"strict_gop", "1"}, {"multipass", "disabled"}, {"ldkfs", "1"},
-                    {"surfaces", "8"}, {"aud", "0"}, {"bluray-compat", "0"}});
+            set({{"preset","p1"},{"tune","ull"},{"rc","cbr"},{"cq","23"},{"delay","0"},{"zerolatency","1"},
+                {"lookahead","0"},{"rc-lookahead","0"},{"forced-idr","1"},{"b_adapt","0"},{"spatial-aq","0"},
+                {"temporal-aq","0"},{"nonref_p","1"},{"strict_gop","1"},{"multipass","disabled"},{"ldkfs","1"},
+                {"surfaces","8"},{"aud","0"},{"bluray-compat","0"}});
         else if (!strcmp(cd->name, "av1_qsv"))
-            SetOpts({{"preset", "veryfast"}, {"async_depth", "1"}, {"look_ahead", "0"}, {"look_ahead_depth", "0"},
-                    {"forced_idr", "1"}, {"low_power", "1"}, {"low_delay_brc", "1"}, {"max_frame_size", "0"},
-                    {"b_strategy", "0"}, {"extbrc", "0"}, {"global_quality", "23"}});
+            set({{"preset","veryfast"},{"async_depth","1"},{"look_ahead","0"},{"look_ahead_depth","0"},
+                {"forced_idr","1"},{"low_power","1"},{"low_delay_brc","1"},{"max_frame_size","0"},
+                {"b_strategy","0"},{"extbrc","0"},{"global_quality","23"}});
         else if (!strcmp(cd->name, "av1_amf"))
-            SetOpts({{"usage", "ultralowlatency"}, {"quality", "speed"}, {"rc", "vbr_latency"}, {"qp_i", "23"},
-                    {"qp_p", "25"}, {"preanalysis", "0"}, {"enforce_hrd", "0"}, {"filler_data", "0"},
-                    {"frame_skipping", "0"}, {"header_insertion_mode", "idr"}});
+            set({{"usage","ultralowlatency"},{"quality","speed"},{"rc","vbr_latency"},{"qp_i","23"},
+                {"qp_p","25"},{"preanalysis","0"},{"enforce_hrd","0"},{"filler_data","0"},
+                {"frame_skipping","0"},{"header_insertion_mode","idr"}});
         else if (!strcmp(cd->name, "libsvtav1"))
-            SetOpts({{"preset", "12"}, {"crf", "28"}, {"svtav1-params", "tune=0:fast-decode=1:enable-overlays=0:scd=0:"
-                    "lookahead=0:lp=1:tile-rows=0:tile-columns=1:enable-tf=0:enable-cdef=0:enable-restoration=0:rmv=0:film-grain=0"}});
+            set({{"preset","12"},{"crf","28"},{"svtav1-params","tune=0:fast-decode=1:enable-overlays=0:scd=0:"
+                "lookahead=0:lp=1:tile-rows=0:tile-columns=1:enable-tf=0:enable-cdef=0:enable-restoration=0:rmv=0:film-grain=0"}});
         else
-            SetOpts({{"cpu-used", "10"}, {"usage", "realtime"}, {"crf", "28"}, {"lag-in-frames", "0"}, {"row-mt", "1"},
-                    {"tile-columns", "2"}, {"tile-rows", "0"}, {"error-resilient", "1"}, {"frame-parallel", "1"},
-                    {"aq-mode", "0"}, {"tune", "ssim"}, {"enable-cdef", "0"}, {"enable-global-motion", "0"},
-                    {"deltaq-mode", "0"}, {"enable-ref-frame-mvs", "0"}, {"reduced-reference-set", "1"}});
+            set({{"cpu-used","10"},{"usage","realtime"},{"crf","28"},{"lag-in-frames","0"},{"row-mt","1"},
+                {"tile-columns","2"},{"tile-rows","0"},{"error-resilient","1"},{"frame-parallel","1"},
+                {"aq-mode","0"},{"tune","ssim"},{"enable-cdef","0"},{"enable-global-motion","0"},
+                {"deltaq-mode","0"},{"enable-ref-frame-mvs","0"},{"reduced-reference-set","1"}});
 
         if (avcodec_open2(cc, cd, 0) < 0) throw std::runtime_error("avcodec_open2 failed");
         hf = av_frame_alloc(); pk = av_packet_alloc();
         if (!hf || !pk) throw std::runtime_error("Alloc failed");
         hf->format = cc->pix_fmt; hf->width = w; hf->height = h;
         if (!hw && av_frame_get_buffer(hf, 32) < 0) throw std::runtime_error("av_frame_get_buffer failed");
-        LOG("Encoder mode: %s (with GPU sync)", hw ? "Hardware" : "Software");
+        LOG("Encoder: %s", hw ? "Hardware" : "Software");
     }
 
     ~AV1Encoder() {
@@ -156,8 +113,7 @@ public:
     void Flush() {
         avcodec_send_frame(cc, 0);
         while (avcodec_receive_packet(cc, pk) == 0) av_packet_unref(pk);
-        avcodec_flush_buffers(cc);
-        lk = steady_clock::now() - KI;
+        avcodec_flush_buffers(cc); lk = steady_clock::now() - KI;
     }
 
     EncodedFrame* Encode(ID3D11Texture2D* tx, int64_t ts, bool fk = false) {
@@ -167,48 +123,35 @@ public:
 
         if (hw) {
             if (av_hwframe_get_buffer(cc->hw_frames_ctx, hf, 0) < 0) { fc++; return nullptr; }
-            {
-                MTLock l(mt);
-                ctx->CopySubresourceRegion((ID3D11Texture2D*)hf->data[0], (UINT)(intptr_t)hf->data[1], 0, 0, 0, tx, 0, 0);
-                // CRITICAL: Wait for GPU copy to complete before encoding
-                // This prevents black frames caused by encoding before copy finishes
-                if (!WaitForGPUCopy(16)) {
-                    fc++;
-                    av_frame_unref(hf);
-                    return nullptr;
-                }
-            }
+            MTLock l(mt);
+            ctx->CopySubresourceRegion((ID3D11Texture2D*)hf->data[0], (UINT)(intptr_t)hf->data[1], 0, 0, 0, tx, 0, 0);
+            if (!WaitGPU(16)) { fc++; av_frame_unref(hf); return nullptr; }
         } else {
             D3D11_TEXTURE2D_DESC td; tx->GetDesc(&td);
             if (!stg || stgW != td.Width || stgH != td.Height) {
-                SafeRelease(stg);
-                td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0;
+                SafeRelease(stg); td.Usage = D3D11_USAGE_STAGING; td.BindFlags = 0;
                 td.CPUAccessFlags = D3D11_CPU_ACCESS_READ; td.MiscFlags = 0;
-                if (FAILED(dev->CreateTexture2D(&td, 0, &stg))) { fc++; return nullptr; }
-                stgW = td.Width; stgH = td.Height;
-                LOG("Created staging texture: %ux%u", stgW, stgH);
+                dev->CreateTexture2D(&td, 0, &stg); stgW = td.Width; stgH = td.Height;
             }
             { MTLock l(mt); ctx->CopyResource(stg, tx); ctx->Flush(); }
-            D3D11_MAPPED_SUBRESOURCE mp; HRESULT hr;
-            { MTLock l(mt); hr = ctx->Map(stg, 0, D3D11_MAP_READ, 0, &mp); }
-            if (FAILED(hr)) { fc++; return nullptr; }
+            D3D11_MAPPED_SUBRESOURCE mp;
+            { MTLock l(mt); if (FAILED(ctx->Map(stg, 0, D3D11_MAP_READ, 0, &mp))) { fc++; return nullptr; } }
             if (av_frame_make_writable(hf) < 0) { MTLock l(mt); ctx->Unmap(stg, 0); fc++; return nullptr; }
             auto* sr = (uint8_t*)mp.pData;
             for (int y = 0; y < h; y++) memcpy(hf->data[0] + y * hf->linesize[0], sr + y * mp.RowPitch, w * 4);
             MTLock l(mt); ctx->Unmap(stg, 0);
         }
 
-        hf->pts = fn++;
-        hf->pict_type = nk ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
+        hf->pts = fn++; hf->pict_type = nk ? AV_PICTURE_TYPE_I : AV_PICTURE_TYPE_NONE;
         hf->flags = nk ? (hf->flags | AV_FRAME_FLAG_KEY) : (hf->flags & ~AV_FRAME_FLAG_KEY);
         if (nk) lk = steady_clock::now();
 
         int ret = avcodec_send_frame(cc, hf);
-        if (ret == AVERROR(EAGAIN)) { bool gk = false; DrainPackets(o, gk); ret = avcodec_send_frame(cc, hf); }
+        if (ret == AVERROR(EAGAIN)) { bool gk = false; while (avcodec_receive_packet(cc, pk) == 0) { if (pk->flags & AV_PKT_FLAG_KEY) gk = true; o->data.insert(o->data.end(), pk->data, pk->data + pk->size); av_packet_unref(pk); } ret = avcodec_send_frame(cc, hf); }
         if (ret < 0 && ret != AVERROR_EOF) { fc++; if (hw) av_frame_unref(hf); return nullptr; }
 
         bool gk = false;
-        DrainPackets(o, gk);
+        while (avcodec_receive_packet(cc, pk) == 0) { if (pk->flags & AV_PKT_FLAG_KEY) gk = true; o->data.insert(o->data.end(), pk->data, pk->data + pk->size); av_packet_unref(pk); }
         if (hw) av_frame_unref(hf);
         if (o->data.empty()) return nullptr;
 

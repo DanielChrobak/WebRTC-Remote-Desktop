@@ -26,6 +26,7 @@
 #include <functional>
 #include <algorithm>
 #include <unordered_map>
+#include <queue>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -43,21 +44,20 @@ namespace WGD = winrt::Windows::Graphics::DirectX;
 #define WARN(f, ...) printf("\033[33m[WARN] " f "\033[0m\n", ##__VA_ARGS__)
 #define ERR(f, ...)  fprintf(stderr, "\033[31m[ERR] " f "\033[0m\n", ##__VA_ARGS__)
 
-constexpr uint32_t MSG_PING = 0x504E4750, MSG_FPS_SET = 0x46505343, MSG_HOST_INFO = 0x484F5354;
-constexpr uint32_t MSG_FPS_ACK = 0x46505341, MSG_REQUEST_KEY = 0x4B455952;
-constexpr uint32_t MSG_MONITOR_LIST = 0x4D4F4E4C, MSG_MONITOR_SET = 0x4D4F4E53, MSG_AUDIO_DATA = 0x41554449;
-
-constexpr uint32_t MSG_CLIPBOARD_TEXT = 0x434C5054, MSG_CLIPBOARD_IMAGE = 0x434C5049;
-constexpr uint32_t MSG_CLIPBOARD_REQUEST = 0x434C5052, MSG_CLIPBOARD_ACK = 0x434C5041;
-
-// WebRTC-based authentication messages
-constexpr uint32_t MSG_AUTH_REQUEST = 0x41555448;   // "AUTH"
-constexpr uint32_t MSG_AUTH_RESPONSE = 0x41555452;  // "AUTR"
+// Message types
+enum MsgType : uint32_t {
+    MSG_PING = 0x504E4750, MSG_FPS_SET = 0x46505343, MSG_HOST_INFO = 0x484F5354,
+    MSG_FPS_ACK = 0x46505341, MSG_REQUEST_KEY = 0x4B455952, MSG_MONITOR_LIST = 0x4D4F4E4C,
+    MSG_MONITOR_SET = 0x4D4F4E53, MSG_AUDIO_DATA = 0x41554449, MSG_MOUSE_MOVE = 0x4D4F5645,
+    MSG_MOUSE_BTN = 0x4D42544E, MSG_MOUSE_WHEEL = 0x4D57484C, MSG_KEY = 0x4B455920,
+    MSG_CLIPBOARD_TEXT = 0x434C5054, MSG_CLIPBOARD_IMAGE = 0x434C5049,
+    MSG_CLIPBOARD_REQUEST = 0x434C5052, MSG_CLIPBOARD_ACK = 0x434C5041,
+    MSG_AUTH_REQUEST = 0x41555448, MSG_AUTH_RESPONSE = 0x41555452
+};
 
 inline int64_t GetTimestamp() {
     FILETIME ft; GetSystemTimePreciseAsFileTime(&ft);
-    ULARGE_INTEGER ul = {ft.dwLowDateTime, ft.dwHighDateTime};
-    return (int64_t)((ul.QuadPart - 116444736000000000ULL) / 10);
+    return (int64_t)(((ULARGE_INTEGER{{ft.dwLowDateTime, ft.dwHighDateTime}}).QuadPart - 116444736000000000ULL) / 10);
 }
 
 template<typename... T> void SafeRelease(T*&... p) { ((p ? (p->Release(), p = nullptr) : nullptr), ...); }
@@ -69,3 +69,8 @@ struct MTLock {
     MTLock(const MTLock&) = delete;
     MTLock& operator=(const MTLock&) = delete;
 };
+
+struct MonitorInfo { HMONITOR hMon; int index, width, height, refreshRate; bool isPrimary; std::string name; };
+extern std::vector<MonitorInfo> g_monitors;
+extern std::mutex g_monitorsMutex;
+void RefreshMonitorList();
