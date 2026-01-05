@@ -12,7 +12,12 @@ export const gl = canvas.getContext('webgl2', {
 const initWebGL = () => {
     if (!gl) return console.error('WebGL2 not supported'), false;
     const dbg = gl.getExtension('WEBGL_debug_renderer_info');
-    dbg && console.info('GPU:', gl.getParameter(dbg.UNMASKED_RENDERER_INFO));
+    if (dbg) {
+        try {
+            const gpu = gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL);
+            if (gpu) console.info('GPU:', gpu);
+        } catch (e) { /* GPU info unavailable */ }
+    }
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST); gl.disable(gl.DITHER);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
 
@@ -93,11 +98,8 @@ export const renderZoomed = () => {
     applyVp(calcVp(S.W, S.H, canvasW, canvasH)); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4); gl.flush();
 };
 
-export const getLatStats = n => {
-    const a = S.lat[n];
-    return a.length ? { avg: a.reduce((x, y) => x + y, 0) / a.length, min: Math.min(...a), max: Math.max(...a) } : { avg: 0 };
-};
-
+const getStats = a => a.length ? { avg: a.reduce((x, y) => x + y, 0) / a.length, min: Math.min(...a), max: Math.max(...a) } : { avg: 0 };
+export const getLatStats = n => getStats(S.lat[n]);
 export const getJitterStats = () => {
     const d = S.jitter.deltas;
     return d.length ? { avg: d.reduce((x, y) => x + y, 0) / d.length, max: Math.max(...d) } : { avg: 0, max: 0 };
@@ -115,7 +117,7 @@ let rto;
 const debResize = () => { clearTimeout(rto); rto = setTimeout(handleResize, 50); };
 const delayedResize = () => { setTimeout(handleResize, 100); setTimeout(handleResize, 300); };
 
-window.addEventListener('resize', debResize);
+['resize'].forEach(e => window.addEventListener(e, debResize));
 window.addEventListener('orientationchange', delayedResize);
 window.screen?.orientation?.addEventListener('change', () => { console.info('Orientation:', screen.orientation.type); setTimeout(handleResize, 100); });
 window.visualViewport?.addEventListener('resize', debResize);

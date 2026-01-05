@@ -5,7 +5,6 @@ import { toggleAudio } from './media.js';
 import { enableClipboard, disableClipboard, isClipboardEnabled } from './clipboard.js';
 
 const $ = id => document.getElementById(id);
-
 const loadingOverlay = $('loadingOverlay'), loadingStatus = $('loadingStatus'), loadingSubstatus = $('loadingSubstatus');
 const stages = { ice: $('stageIce'), signal: $('stageSignal'), connect: $('stageConnect'), auth: $('stageAuth'), stream: $('stageStream') };
 
@@ -28,14 +27,11 @@ export const updateLoadingStage = (stage, errorMsg = null) => {
     const [status, substatus] = stageMessages[stage] || stageMessages[ConnectionStage.IDLE];
     loadingStatus.textContent = S.isReconnecting ? 'Reconnecting...' : status;
     loadingSubstatus.textContent = errorMsg || substatus;
-
     const currentIdx = stageOrder.indexOf(stage);
     stageMap.forEach(([el, s]) => {
         const sIdx = stageOrder.indexOf(s);
         el.classList.remove('active', 'done', 'error');
-        const cls = stage === ConnectionStage.ERROR
-            ? (sIdx <= currentIdx ? 'error' : null)
-            : sIdx < currentIdx ? 'done' : sIdx === currentIdx ? 'active' : null;
+        const cls = stage === ConnectionStage.ERROR ? (sIdx <= currentIdx ? 'error' : '') : sIdx < currentIdx ? 'done' : sIdx === currentIdx ? 'active' : '';
         if (cls) el.classList.add(cls);
     });
     loadingOverlay.classList.toggle('reconnecting', S.isReconnecting);
@@ -82,12 +78,10 @@ export const setNetCbs = (f, m) => { applyFpsFn = f; sendMonFn = m; };
 const edge = $('edge'), bk = $('bk'), pnl = $('pnl'), sc = $('sc');
 const statsEl = $('stats'), conEl = $('con'), fpsSel = $('fpsSel'), monSel = $('monSel');
 
-const openPnl = () => { pnl.classList.add('on'); bk.classList.add('on'); edge.classList.add('on'); $('pnlX').focus(); };
-const closePnl = () => { pnl.classList.remove('on'); bk.classList.remove('on'); edge.classList.remove('on'); };
-
-edge.onclick = openPnl;
-$('pnlX').onclick = bk.onclick = closePnl;
-document.onkeydown = e => { if (e.key === 'Escape' && pnl.classList.contains('on') && !S.controlEnabled) closePnl(); };
+const togglePnl = on => { ['pnl', 'bk', 'edge'].forEach(id => $(id).classList.toggle('on', on)); on && $('pnlX').focus(); };
+edge.onclick = () => togglePnl(true);
+$('pnlX').onclick = bk.onclick = () => togglePnl(false);
+document.onkeydown = e => { if (e.key === 'Escape' && pnl.classList.contains('on') && !S.controlEnabled) togglePnl(false); };
 
 const bindTog = (id, key, target) => {
     const el = $(id);
@@ -99,24 +93,17 @@ bindTog('togS', 'statsOn', statsEl);
 bindTog('togC', 'consoleOn', conEl);
 $('conClr').onclick = clearLogs;
 
-// Clipboard toggle
 const togClip = $('togClip'), clipSt = $('clipSt'), clipStT = $('clipStT');
 if (togClip) {
     togClip.onclick = () => {
-        if (isClipboardEnabled()) {
-            disableClipboard();
-            togClip.classList.remove('on');
-            clipSt.classList.remove('on');
-            clipStT.textContent = 'Clipboard syncing is disabled';
-        } else {
-            enableClipboard();
-            togClip.classList.add('on');
-            clipSt.classList.add('on');
-            clipStT.textContent = 'Clipboard syncing is active';
-        }
+        const enabled = !isClipboardEnabled();
+        enabled ? enableClipboard() : disableClipboard();
+        togClip.classList.toggle('on', enabled); clipSt.classList.toggle('on', enabled);
+        clipStT.textContent = enabled ? 'Clipboard syncing is active' : 'Clipboard syncing is disabled';
     };
     togClip.onkeydown = e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), togClip.click());
 }
+
 fpsSel.onchange = () => applyFpsFn?.(fpsSel.value);
 monSel.onchange = () => sendMonFn?.(+monSel.value);
 $('aBtn').onclick = toggleAudio;
@@ -139,8 +126,7 @@ $('fs').onclick = () => {
        : (document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen)?.call(document.documentElement).catch(e => console.warn('Fullscreen:', e.message));
 };
 
-document.addEventListener('fullscreenchange', updFS);
-document.addEventListener('webkitfullscreenchange', updFS);
+['fullscreenchange', 'webkitfullscreenchange'].forEach(e => document.addEventListener(e, updFS));
 
 const fn = (v, d = 2) => v.toFixed(d);
 const fp = (n, d) => d <= 0 ? '0.0' : ((n / d) * 100).toFixed(1);
