@@ -29,11 +29,10 @@ class WebRTCServer {
     void SendAuthResp(bool ok, const std::string& err = "") {
         auto ch = dc; if (!ch || !ch->isOpen()) return;
         std::vector<uint8_t> buf(sizeof(AuthRespMsg) + (ok ? 0 : err.size()));
-        auto* msg = (AuthRespMsg*)buf.data();
-        msg->magic = MSG_AUTH_RESPONSE; msg->success = ok; msg->errorLen = ok ? 0 : (uint8_t)std::min(err.size(), (size_t)255);
+        auto* msg = (AuthRespMsg*)buf.data(); msg->magic = MSG_AUTH_RESPONSE; msg->success = ok; msg->errorLen = ok ? 0 : (uint8_t)std::min(err.size(), (size_t)255);
         if (!ok) memcpy(buf.data() + sizeof(AuthRespMsg), err.c_str(), msg->errorLen);
         SafeSend(buf.data(), buf.size());
-        if (ok) LOG("Client authenticated"); else { WARN("Auth failed: %s", err.c_str()); std::thread([this] { std::this_thread::sleep_for(100ms); ForceDisconnect("Auth failed"); }).detach(); }
+        if (ok) { LOG("Client authenticated"); } else { WARN("Auth failed: %s", err.c_str()); std::thread([this] { std::this_thread::sleep_for(100ms); ForceDisconnect("Auth failed"); }).detach(); }
     }
 
     void SendHostInfo() { if (auto ch = dc; ch && ch->isOpen()) { int fps = getHfps ? getHfps() : 60; uint8_t b[6]; *(uint32_t*)b = MSG_HOST_INFO; *(uint16_t*)(b+4) = (uint16_t)fps; SafeSend(b, 6); } }
@@ -54,8 +53,7 @@ class WebRTCServer {
     void ForceDisconnect(const char* r) {
         if (!conn) return; WARN("Disconnect: %s", r);
         conn = fpsr = authenticated = false; overflows = 0; pingTimeout = false;
-        try { if (dc) dc->close(); } catch (...) {}
-        try { if (pc) pc->close(); } catch (...) {}
+        try { if (dc) dc->close(); } catch (...) {} try { if (pc) pc->close(); } catch (...) {}
         if (onDisconnect) onDisconnect();
     }
 
@@ -91,11 +89,7 @@ class WebRTCServer {
         { std::lock_guard<std::mutex> lk(dmx); ldesc.clear(); }
         pc = std::make_shared<rtc::PeerConnection>(cfg);
         pc->onLocalDescription([this](rtc::Description d) { std::lock_guard<std::mutex> lk(dmx); ldesc = std::string(d); dcv.notify_all(); });
-        pc->onStateChange([this](auto s) {
-            bool was = conn.load(); conn = (s == rtc::PeerConnection::State::Connected);
-            if (conn && !was) { nkey = true; lastPing = GetTimestamp() / 1000; }
-            if (!conn && was) { fpsr = authenticated = false; overflows = 0; if (onDisconnect) onDisconnect(); }
-        });
+        pc->onStateChange([this](auto s) { bool was = conn.load(); conn = (s == rtc::PeerConnection::State::Connected); if (conn && !was) { nkey = true; lastPing = GetTimestamp() / 1000; } if (!conn && was) { fpsr = authenticated = false; overflows = 0; if (onDisconnect) onDisconnect(); } });
         pc->onGatheringStateChange([this](auto s) { if (s == rtc::PeerConnection::GatheringState::Complete) { gc = true; dcv.notify_all(); } });
         pc->onDataChannel([this](auto ch) {
             if (ch->label() != "screen") return;
@@ -106,16 +100,10 @@ class WebRTCServer {
         });
     }
 
-    bool IsStale() {
-        if (!conn) return false;
-        int64_t lp = lastPing.load(), now = GetTimestamp() / 1000;
-        if (lp > 0 && (now - lp) > 3000) { if (!pingTimeout.exchange(true)) WARN("Ping timeout"); return true; }
-        return overflows >= 10;
-    }
+    bool IsStale() { if (!conn) return false; int64_t lp = lastPing.load(), now = GetTimestamp() / 1000; if (lp > 0 && (now - lp) > 3000) { if (!pingTimeout.exchange(true)) WARN("Ping timeout"); return true; } return overflows >= 10; }
 
 public:
     WebRTCServer() {
-        // Use public STUN servers only
         cfg.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302"));
         cfg.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
         cfg.portRangeBegin = 50000; cfg.portRangeEnd = 50100; cfg.enableIceTcp = true;
@@ -135,11 +123,7 @@ public:
 
     std::string GetLocal() { std::unique_lock<std::mutex> lk(dmx); dcv.wait_for(lk, 5s, [this] { return !ldesc.empty() && gc.load(); }); return ldesc; }
 
-    void SetRemote(const std::string& sdp, const std::string& type) {
-        if (type == "offer") Setup();
-        pc->setRemoteDescription(rtc::Description(sdp, type));
-        if (type == "offer") pc->setLocalDescription();
-    }
+    void SetRemote(const std::string& sdp, const std::string& type) { if (type == "offer") Setup(); pc->setRemoteDescription(rtc::Description(sdp, type)); if (type == "offer") pc->setLocalDescription(); }
 
     bool IsConnected() const { return conn; }
     bool IsAuthenticated() const { return authenticated; }
@@ -179,11 +163,7 @@ public:
         } catch (...) {}
     }
 
-    void SendClipboard(const std::vector<uint8_t>& data) {
-        if (!conn || !authenticated || data.empty()) return;
-        auto ch = dc; if (!ch || !ch->isOpen() || ch->bufferedAmount() > BT / 2) return;
-        SafeSend(data.data(), data.size());
-    }
+    void SendClipboard(const std::vector<uint8_t>& data) { if (!conn || !authenticated || data.empty()) return; auto ch = dc; if (!ch || !ch->isOpen() || ch->bufferedAmount() > BT / 2) return; SafeSend(data.data(), data.size()); }
 
     struct Stats { uint64_t sent, bytes, dropped; bool conn; };
     Stats GetStats() { return {sc.exchange(0), bc.exchange(0), dpc.exchange(0), conn.load()}; }

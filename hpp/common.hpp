@@ -44,7 +44,6 @@ namespace WGD = winrt::Windows::Graphics::DirectX;
 #define WARN(f, ...) printf("\033[33m[WARN] " f "\033[0m\n", ##__VA_ARGS__)
 #define ERR(f, ...)  fprintf(stderr, "\033[31m[ERR] " f "\033[0m\n", ##__VA_ARGS__)
 
-// Message types
 enum MsgType : uint32_t {
     MSG_PING = 0x504E4750, MSG_FPS_SET = 0x46505343, MSG_HOST_INFO = 0x484F5354,
     MSG_FPS_ACK = 0x46505341, MSG_REQUEST_KEY = 0x4B455952, MSG_MONITOR_LIST = 0x4D4F4E4C,
