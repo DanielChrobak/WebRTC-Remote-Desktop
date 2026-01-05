@@ -29,47 +29,22 @@
   </div>
 </div>
 
-<!-- Connection Mode Modal -->
+<!-- Connection Modal -->
 <div class="auth-overlay" id="connectOverlay">
-  <div class="auth-container connect-container">
+  <div class="auth-container">
     <div class="auth-icon">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M5 12h14M12 5l7 7-7 7"/>
       </svg>
     </div>
     <h2 class="auth-title">Connect</h2>
-    <p class="auth-subtitle">Choose connection method</p>
+    <p class="auth-subtitle">Enter the server address</p>
 
-    <div class="connect-tabs">
-      <button class="connect-tab active" id="tabLocal" data-tab="local">Local</button>
-      <button class="connect-tab" id="tabRemote" data-tab="remote">Remote</button>
+    <div class="auth-field">
+      <label class="auth-label" for="localUrlInput">Server URL</label>
+      <input type="text" id="localUrlInput" class="auth-input" placeholder="http://192.168.1.100:6060" spellcheck="false">
     </div>
-
-    <div class="connect-panel" id="panelLocal">
-      <p class="connect-info">Connect directly to a server on your local network.</p>
-      <div class="auth-field">
-        <label class="auth-label" for="localUrlInput">Server URL</label>
-        <input type="text" id="localUrlInput" class="auth-input" placeholder="http://192.168.1.100:6060" spellcheck="false">
-      </div>
-      <button class="auth-btn" id="connectLocalBtn">Connect</button>
-    </div>
-
-    <div class="connect-panel hidden" id="panelRemote">
-      <p class="connect-info">Connect through a signaling server (no port forwarding needed).</p>
-      <div class="auth-field">
-        <label class="auth-label" for="signalingUrlInput">Signaling Server</label>
-        <input type="text" id="signalingUrlInput" class="auth-input" placeholder="https://your-worker.workers.dev" spellcheck="false">
-      </div>
-      <div class="auth-field">
-        <label class="auth-label" for="hostIdInput">Host ID</label>
-        <input type="text" id="hostIdInput" class="auth-input" style="text-transform:uppercase;letter-spacing:2px;text-align:center;font-weight:600;" maxlength="10" placeholder="ABC123" spellcheck="false">
-      </div>
-      <div class="auth-field">
-        <label class="auth-label" for="turnUrlInput">TURN Credentials URL <span style="opacity:0.5;font-weight:400">(optional)</span></label>
-        <input type="text" id="turnUrlInput" class="auth-input" placeholder="https://your-app.metered.live/api/v1/turn/credentials?apiKey=..." spellcheck="false">
-      </div>
-      <button class="auth-btn" id="connectRemoteBtn">Connect</button>
-    </div>
+    <button class="auth-btn" id="connectLocalBtn">Connect</button>
 
     <p class="auth-error" id="connectError"></p>
   </div>
