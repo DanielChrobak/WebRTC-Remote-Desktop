@@ -9,7 +9,7 @@ import { handleClipboardMessage, setClipboardSendFn, startClipboardMonitor, sync
 // CONNECTION CONFIGURATION
 // ═══════════════════════════════════════════════════════════════════════════
 let connectionMode = 'local'; // 'local' or 'remote'
-let baseUrl = ''; // For local mode: http://192.168.1.x:6060
+let baseUrl = ''; // For local mode: http://192.168.1.x:80
 let signalingUrl = ''; // For remote mode: https://worker.workers.dev
 let hostId = ''; // For remote mode: ABC123
 const CONNECTION_TIMEOUT = 15000;
@@ -28,7 +28,10 @@ const CONNECTION_KEY = 'remote_desktop_connection';
 let currentCreds = null, authResolve = null, authRejectFn = null;
 let cachedIce = null, iceFetched = false, hasConnected = false, waitFirstFrame = false, connAttempts = 0, pingInterval = null;
 let sessionId = null, pollInterval = null, lastHostIceIndex = 0, connectionStartTime = 0;
-const MAX_DELAY = 10000, STUN_FALLBACK = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+const MAX_DELAY = 10000, STUN_FALLBACK = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:stun1.l.google.com:19302' }
+];
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONNECTION MODAL
@@ -276,11 +279,14 @@ const fetchTurn = async () => {
         }
 
         if (!cfg) {
-            cfg = {
-                meteredEnabled: true,
-                fetchUrl: 'https://screensharewebrtc.metered.live/api/v1/turn/credentials?apiKey=cc66ce75e4dfcfc35e2ae3ef7e9413d3c1fe',
-                servers: []
-            };
+            // No server config available, use public STUN only
+            console.warn('No TURN config from server, using STUN fallback');
+            S.ice.configSource = 'fallback';
+            cachedIce = STUN_FALLBACK;
+            iceFetched = true;
+            S.ice.stunServers = 2;
+            S.ice.turnServers = 0;
+            return cachedIce;
         }
 
         let servers = [];
