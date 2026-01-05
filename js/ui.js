@@ -145,15 +145,10 @@ export const updateStats = () => {
     const { recv, dec: decS, rend, bytes, audio, moves, clicks, keys, tRecv, tDropNet, tDropDec } = S.stats;
     const [inF, decF, rndF, br, aud] = [recv / dt, decS / dt, rend / dt, (bytes * 8) / 1048576 / dt, audio / dt];
     const tDrop = tDropNet + tDropDec, tFr = tRecv + tDrop, dropP = tFr > 0 ? (tDrop / tFr) * 100 : 0;
-    const { ice } = S, modeL = S.currentFpsMode === 1 ? ' (H)' : S.currentFpsMode === 2 ? ' (C)' : '';
-
-    const connType = { relay: 'TURN', stun: 'STUN', direct: 'P2P' }[ice.connectionType] || '...';
-    const configL = { metered: 'Metered', manual: 'Manual', fallback: 'Fallback' }[ice.configSource] || '...';
-    const turnL = ice.usingTurn ? 'Active' : ice.turnServers > 0 ? 'Ready' : 'None';
+    const modeL = S.currentFpsMode === 1 ? ' (H)' : S.currentFpsMode === 2 ? ' (C)' : '';
 
     sc.innerHTML = [
         sec('Stream', row('Monitor', S.monitors.length ? `#${S.currentMon + 1}` : '-'), row('Res', `${S.W}x${S.H}`), row('Codec', `AV1 ${S.hwAccel}`), row('FPS', `${S.currentFps}${modeL}`), row('Bitrate', `${fn(br, 1)} Mbps`)),
-        sec('Network', row('Config', configL), row('ICE', `${ice.stunServers}S ${ice.turnServers}T`), row('Type', connType, ice.connectionType === 'relay' ? 'w' : ice.connectionType === 'direct' ? 'g' : ''), row('TURN', turnL, ice.usingTurn ? 'w' : '')),
         sec('FPS', row('In', `${fn(inF, 1)}`), row('Decode', `${fn(decF, 1)}`), row('Render', `${fn(rndF, 1)}`)),
         sec('Audio', row('Status', S.audioEnabled ? 'On' : 'Off', S.audioEnabled ? 'g' : ''), row('Pkt/s', fn(aud, 1))),
         sec('Input', row('Status', S.controlEnabled ? (S.pointerLocked ? 'Locked' : 'On') : 'Off', S.controlEnabled ? 'g' : ''), row('Mouse/s', fn(moves / dt, 0)), row('Click+Key', `${clicks}+${keys}`)),

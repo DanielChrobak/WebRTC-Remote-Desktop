@@ -20,8 +20,6 @@ export const C = {
 
 export const ConnectionStage = { IDLE: 'idle', ICE_GATHERING: 'ice', SIGNALING: 'signal', CONNECTING: 'connect', AUTHENTICATING: 'auth', STREAMING: 'stream', CONNECTED: 'connected', ERROR: 'error' };
 
-const defIce = () => ({ stunServers: 0, turnServers: 0, candidates: { host: 0, srflx: 0, relay: 0, prflx: 0 }, connectionType: 'unknown', selectedPair: null, usingTurn: false, configSource: 'unknown' });
-
 export const S = {
     pc: null, dc: null, decoder: null,
     ready: false, needKey: true, reinit: false, hwAccel: 'unknown', lastCapTs: 0,
@@ -33,7 +31,6 @@ export const S = {
     touchEnabled: false, touchMode: 'trackpad', touchX: 0.5, touchY: 0.5, zoom: 1, zoomX: 0, zoomY: 0,
     statsOn: false, consoleOn: false,
     connectionStage: ConnectionStage.IDLE, isReconnecting: false, firstFrameReceived: false,
-    ice: defIce(),
     stats: { tRecv: 0, tDec: 0, tRend: 0, tDropNet: 0, tDropDec: 0, tBytes: 0, tAudio: 0, recv: 0, dec: 0, rend: 0, bytes: 0, audio: 0, moves: 0, clicks: 0, keys: 0, clipboard: 0, lastUpdate: performance.now() },
     lat: { encode: [], network: [], decode: [], queue: [], render: [] },
     jitter: { last: 0, deltas: [] },
@@ -42,6 +39,5 @@ export const S = {
 };
 
 export const resetStats = () => Object.assign(S.stats, { recv: 0, dec: 0, rend: 0, bytes: 0, audio: 0, moves: 0, clicks: 0, keys: 0, clipboard: 0, lastUpdate: performance.now() });
-export const resetIceStats = () => Object.assign(S.ice, defIce());
 export const $ = id => document.getElementById(id);
 export const mkBuf = (sz, fn) => { const b = new ArrayBuffer(sz), v = new DataView(b); fn(v); return b; };
