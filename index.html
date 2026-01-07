@@ -10,11 +10,11 @@
   <canvas id="c"></canvas>
 
   <!-- Loading -->
-  <div class="overlay" id="loading">
+  <div class="overlay" id="loadingOverlay">
     <div class="card center">
       <div class="spinner"><i></i><i></i><i></i></div>
-      <h2 id="loadStatus">Connecting...</h2>
-      <p class="muted" id="loadSub">Initializing</p>
+      <h2 id="loadingStatus">Connecting...</h2>
+      <p class="muted" id="loadingSubstatus">Initializing</p>
       <div class="stages">
         <span id="stageIce" data-label="ICE"></span>
         <span id="stageSignal" data-label="Signal"></span>
@@ -31,8 +31,8 @@
       <svg class="icon" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
       <h2>Connect</h2>
       <p class="muted">Enter server address</p>
-      <label>Server URL<input type="text" id="serverUrl" placeholder="http://192.168.1.100:6060"></label>
-      <button class="primary" id="connectBtn">Connect</button>
+      <label>Server URL<input type="text" id="localUrlInput" placeholder="http://192.168.1.100:6060"></label>
+      <button class="primary" id="connectLocalBtn">Connect</button>
       <p class="error" id="connectError"></p>
     </div>
   </div>
@@ -43,64 +43,64 @@
       <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>
       <h2>Authentication</h2>
       <p class="muted">Enter credentials</p>
-      <label>Username<input type="text" id="username" maxlength="32" placeholder="Username"></label>
-      <label>PIN<input type="text" id="pin" class="pin" maxlength="6" inputmode="numeric" placeholder="------"></label>
+      <label>Username<input type="text" id="usernameInput" maxlength="32" placeholder="Username"></label>
+      <label>PIN<input type="text" id="pinInput" class="pin" maxlength="6" inputmode="numeric" placeholder="------"></label>
       <p class="error" id="authError"></p>
-      <button class="primary" id="authBtn">Connect</button>
+      <button class="primary" id="authSubmit">Connect</button>
     </div>
   </div>
 
   <!-- Settings trigger -->
   <button class="edge" id="edge"></button>
-  <div class="backdrop hidden" id="backdrop"></div>
+  <div class="backdrop hidden" id="bk"></div>
 
   <!-- Settings Panel -->
-  <aside class="panel hidden" id="panel">
-    <header><span>Settings</span><button id="closePanel">&times;</button></header>
+  <aside class="panel hidden" id="pnl">
+    <header><span>Settings</span><button id="pnlX">&times;</button></header>
     <div class="content">
       <section class="desktop-only">
         <div class="row">
-          <button id="fullscreen"><svg viewBox="0 0 24 24"><path id="fsPath"/></svg><span id="fsText">Fullscreen</span></button>
-          <button id="disconnect"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/></svg><span>Disconnect</span></button>
+          <button id="fs"><svg id="fsi" viewBox="0 0 24 24"><path id="fsp"/></svg><span id="fst">Fullscreen</span></button>
+          <button id="disconnectBtn"><svg viewBox="0 0 24 24"><path d="M18.36 6.64a9 9 0 11-12.73 0M12 2v10"/></svg><span>Disconnect</span></button>
         </div>
       </section>
 
       <section>
         <h3>Capture</h3>
-        <label class="inline">Monitor<select id="monitorSelect"><option>Waiting...</option></select></label>
-        <label class="inline">Frame Rate<select id="fpsSelect"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
+        <label class="inline">Monitor<select id="monSel"><option>Waiting...</option></select></label>
+        <label class="inline">Frame Rate<select id="fpsSel"><option value="15">15 FPS</option><option value="30">30 FPS</option><option value="60">60 FPS</option></select></label>
       </section>
 
       <section>
         <h3>Audio</h3>
-        <button id="audioBtn"><svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/></svg><span id="audioText">Enable</span></button>
-        <p class="status" id="audioStatus"><i></i><span>Tap to enable</span></p>
+        <button id="aBtn"><svg viewBox="0 0 24 24"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 010 7.07M19.07 4.93a10 10 0 010 14.14"/></svg><span id="aTxt">Enable</span></button>
+        <p class="status" id="aSt"><i></i><span id="aStT">Tap to enable</span></p>
       </section>
 
       <section class="touch-only">
         <h3>Touch</h3>
-        <p class="status on"><i></i><span id="touchStatus">Trackpad mode</span></p>
+        <p class="status on"><i></i><span id="tStT">Trackpad mode</span></p>
         <div class="radio-group">
-          <label><input type="radio" name="touchMode" value="trackpad" checked><span>Trackpad</span></label>
-          <label><input type="radio" name="touchMode" value="direct"><span>Direct</span></label>
+          <label><input type="radio" name="tm" value="trackpad" checked><span>Trackpad</span></label>
+          <label><input type="radio" name="tm" value="direct"><span>Direct</span></label>
         </div>
       </section>
 
       <section>
         <h3>Debug</h3>
-        <button class="toggle" id="statsToggle"><span>Stats Overlay</span><i></i></button>
-        <button class="toggle" id="consoleToggle"><span>Console</span><i></i></button>
+        <button class="toggle" id="togS"><span>Stats Overlay</span><i></i></button>
+        <button class="toggle" id="togC"><span>Console</span><i></i></button>
       </section>
     </div>
   </aside>
 
   <!-- Stats -->
-  <div class="stats hidden" id="stats"></div>
+  <div class="stats hidden" id="stats"><div id="sc"></div></div>
 
   <!-- Console -->
-  <div class="console hidden" id="console">
-    <header><span>Console</span><button id="clearConsole">Clear</button></header>
-    <div class="logs" id="logs"></div>
+  <div class="console hidden" id="con">
+    <header><span>Console</span><button id="conClr">Clear</button></header>
+    <div class="logs" id="conOut"></div>
   </div>
 
   <script type="module" src="/js/network.js"></script>
