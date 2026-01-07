@@ -1,7 +1,7 @@
 import { MSG, C, S, mkBuf } from './state.js';
 import { canvas, canvasW, canvasH, calcVp, renderZoomed } from './renderer.js';
 
-let absX = 0.5, absY = 0.5, tStartX = 0, tStartY = 0, tStartT = 0, tMoved = false, tDrag = false;
+let tStartX = 0, tStartY = 0, tStartT = 0, tMoved = false, tDrag = false;
 let lastTX = 0, lastTY = 0, tId = null, lpTimer = null, tf2Start = 0, tf2Active = false;
 let pinch = false, pinchPending = false, pinchDist = 0, pinchScale = 1;
 let scroll = false, scrollPending = false, lastScrollX = 0, lastScrollY = 0, scrollAccX = 0, scrollAccY = 0;
@@ -26,27 +26,16 @@ const toNorm = (cx, cy) => {
     return (x < vp.x || x > vp.x + vp.w || y < vp.y || y > vp.y + vp.h) ? null : { x: Math.max(0, Math.min(1, (x - vp.x) / vp.w)), y: Math.max(0, Math.min(1, (y - vp.y) / vp.h)) };
 };
 
-const reqLock = () => (canvas.requestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock)?.call(canvas);
-const exitLock = () => (document.exitPointerLock || document.mozExitPointerLock || document.webkitExitPointerLock)?.call(document);
-
-document.addEventListener('pointerlockchange', () => {
-    S.pointerLocked = !!(document.pointerLockElement || document.mozPointerLockElement || document.webkitPointerLockElement);
-    console.info('Pointer lock:', S.pointerLocked ? 'active' : 'inactive');
-    S.pointerLocked && (absX = absY = 0.5);
-});
-
 const getMods = e => (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
-const getSens = () => ({ x: 0.001, y: S.W > 0 && S.H > 0 ? 0.001 * S.W / S.H : 0.001 });
 
 const H = {
     move: e => { if (!S.controlEnabled && !S.touchEnabled) return;
-        if (S.pointerLocked) { const s = getSens(); absX = Math.max(0, Math.min(1, absX + e.movementX * s.x)); absY = Math.max(0, Math.min(1, absY + e.movementY * s.y)); send('move', absX, absY); }
-        else { const p = toNorm(e.clientX, e.clientY); p && send('move', p.x, p.y); } },
+        const p = toNorm(e.clientX, e.clientY); p && send('move', p.x, p.y); },
     down: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('btn', BMAP[e.button] ?? 0, true)); },
     up: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('btn', BMAP[e.button] ?? 0, false)); },
     wheel: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('wheel', e.deltaX, e.deltaY)); },
     ctx: e => S.controlEnabled && e.preventDefault(),
-    keyD: e => { if (!S.controlEnabled) return; if (e.key === 'Escape' && S.pointerLocked) return exitLock(); !e.metaKey && e.preventDefault(); send('key', e.keyCode, 0, true, getMods(e)); },
+    keyD: e => { if (!S.controlEnabled) return; !e.metaKey && e.preventDefault(); send('key', e.keyCode, 0, true, getMods(e)); },
     keyU: e => { if (!S.controlEnabled) return; !e.metaKey && e.preventDefault(); send('key', e.keyCode, 0, false, getMods(e)); }
 };
 
@@ -55,16 +44,13 @@ export const enableControl = () => {
     canvas.addEventListener('mousemove', H.move); canvas.addEventListener('mousedown', H.down); canvas.addEventListener('mouseup', H.up);
     canvas.addEventListener('contextmenu', H.ctx); canvas.addEventListener('wheel', H.wheel, { passive: false });
     document.addEventListener('keydown', H.keyD); document.addEventListener('keyup', H.keyU);
-    canvas.style.cursor = 'none';
 };
 
 export const disableControl = () => {
     if (!S.controlEnabled) return; S.controlEnabled = false; console.info('Control disabled');
-    S.pointerLocked && exitLock();
     canvas.removeEventListener('mousemove', H.move); canvas.removeEventListener('mousedown', H.down); canvas.removeEventListener('mouseup', H.up);
     canvas.removeEventListener('contextmenu', H.ctx); canvas.removeEventListener('wheel', H.wheel);
     document.removeEventListener('keydown', H.keyD); document.removeEventListener('keyup', H.keyU);
-    canvas.style.cursor = 'default';
 };
 
 const dist2 = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
@@ -190,5 +176,5 @@ export const updateTouchUI = () => { const el = document.getElementById('tStT');
 export const isTouchDev = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 export const isDesktop = () => window.matchMedia('(pointer: fine)').matches;
 
-canvas.addEventListener('click', () => { if (isDesktop()) { if (!S.controlEnabled) enableControl(); if (S.controlEnabled && !S.pointerLocked) reqLock(); } });
+canvas.addEventListener('click', () => { if (isDesktop() && !S.controlEnabled) enableControl(); });
 isTouchDev() && enableTouch();

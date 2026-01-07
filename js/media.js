@@ -11,8 +11,20 @@ export const initDecoder = async (force = false) => {
 
     const dec = new VideoDecoder({
         output: f => render(f, S.frameMeta.get(f.timestamp)),
-        error: e => { console.error('Decoder:', e.message); S.ready = true; S.needKey = true; reqKey?.();
-            if (!S.reinit) { S.reinit = true; setTimeout(async () => { await initDecoder(); S.reinit = false; }, 50); } }
+        error: e => {
+            console.error('Decoder error:', e.message);
+            S.ready = true;
+            S.needKey = true;
+            reqKey?.();
+            // Don't reinit too quickly - wait for keyframe first
+            if (!S.reinit) {
+                S.reinit = true;
+                setTimeout(async () => {
+                    await initDecoder();
+                    S.reinit = false;
+                }, 100);  // Increased from 50ms to 100ms
+            }
+        }
     });
     S.decoder = dec;
 
@@ -25,20 +37,78 @@ export const initDecoder = async (force = false) => {
 };
 
 export const decodeFrame = data => {
-    if (!S.ready || (!data.isKey && S.needKey)) { S.stats.tDropDec++; !S.ready || reqKey?.(); return; }
-    if (!S.decoder || S.decoder.state !== 'configured') { S.stats.tDropDec++; if (!S.reinit) { S.reinit = true; setTimeout(async () => { await initDecoder(); S.reinit = false; }, 50); } return; }
+    // *** CRITICAL: Check needKey BEFORE attempting decode ***
+    // This prevents sending delta frames to decoder when we know they'll fail
+    if (!S.ready) {
+        S.stats.tDropDec++;
+        return;
+    }
+
+    // If we need a keyframe and this isn't one, drop it
+    if (S.needKey && !data.isKey) {
+        S.stats.tDropDec++;
+        // Request keyframe if we haven't recently
+        reqKey?.();
+        return;
+    }
+
+    if (!S.decoder || S.decoder.state !== 'configured') {
+        S.stats.tDropDec++;
+        if (!S.reinit) {
+            S.reinit = true;
+            setTimeout(async () => { await initDecoder(); S.reinit = false; }, 100);
+        }
+        return;
+    }
+
     try {
         const q = S.decoder.decodeQueueSize;
-        if ((q > 4 && !data.isKey) || q > 6) { reqKey?.(); S.stats.tDropDec++; return; }
-        if (!Number.isFinite(data.capTs) || data.capTs < 0) { S.stats.tDropDec++; return; }
+        // If queue is too full and we're waiting for keyframe, don't add more
+        if (q > 4 && !data.isKey) {
+            reqKey?.();
+            S.stats.tDropDec++;
+            return;
+        }
+        if (q > 6) {
+            reqKey?.();
+            S.stats.tDropDec++;
+            return;
+        }
+
+        if (!Number.isFinite(data.capTs) || data.capTs < 0) {
+            S.stats.tDropDec++;
+            return;
+        }
+
         const ds = performance.now();
         S.frameMeta.set(data.capTs, { capTs: data.capTs, encMs: data.encMs, netMs: data.netMs, queueMs: ds - data.fcT, decStart: ds });
         if (S.frameMeta.size > 30) [...S.frameMeta.keys()].sort((a, b) => a - b).slice(0, -20).forEach(k => S.frameMeta.delete(k));
+
         const dur = S.lastCapTs > 0 && data.capTs > S.lastCapTs ? data.capTs - S.lastCapTs : 16667;
         S.lastCapTs = data.capTs;
-        S.decoder.decode(new EncodedVideoChunk({ type: data.isKey ? 'key' : 'delta', timestamp: data.capTs, duration: dur, data: data.buf }));
-        S.stats.dec++; S.stats.tDec++; if (data.isKey) S.needKey = false;
-    } catch (e) { console.error('Decode:', e.message); S.stats.tDropDec++; S.needKey = true; S.ready = true; reqKey?.(); }
+
+        S.decoder.decode(new EncodedVideoChunk({
+            type: data.isKey ? 'key' : 'delta',
+            timestamp: data.capTs,
+            duration: dur,
+            data: data.buf
+        }));
+
+        S.stats.dec++;
+        S.stats.tDec++;
+
+        // Only clear needKey when we successfully decode a keyframe
+        if (data.isKey) {
+            S.needKey = false;
+            console.info('✅ Keyframe decoded, decoder synced');
+        }
+    } catch (e) {
+        console.error('Decode exception:', e.message);
+        S.stats.tDropDec++;
+        S.needKey = true;
+        S.ready = true;
+        reqKey?.();
+    }
 };
 
 export const initAudio = async () => {

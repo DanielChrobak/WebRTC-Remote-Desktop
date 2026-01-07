@@ -3,7 +3,6 @@ import './input.js';
 import { MSG, C, S, $, mkBuf, Stage } from './state.js';
 import { handleAudioPkt, closeAudio, initDecoder, decodeFrame, setReqKeyFn } from './media.js';
 import { updateStats, updateMonOpts, updateFpsOpts, setNetCbs, updateLoadingStage, showLoading, hideLoading, isLoadingVisible } from './ui.js';
-import { handleClipboardMessage, setClipboardSendFn, startClipboardMonitor, syncLocalClipboard } from './clipboard.js';
 
 let baseUrl = '';
 const AUTH_KEY = 'remote_desktop_auth', CONN_KEY = 'remote_desktop_connection';
@@ -244,8 +243,7 @@ $('disconnectBtn')?.addEventListener('click', () => { cleanup(); hasConnected = 
 export const sendMonSel = i => sendMsg(mkBuf(5, v => { v.setUint32(0, MSG.MONITOR_SET, true); v.setUint8(4, i); }));
 export const sendFps = (fps, mode) => sendMsg(mkBuf(7, v => { v.setUint32(0, MSG.FPS_SET, true); v.setUint16(4, fps, true); v.setUint8(6, mode); }));
 export const reqKey = () => sendMsg(mkBuf(4, v => v.setUint32(0, MSG.REQUEST_KEY, true)));
-export const sendClipboard = buf => sendMsg(buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf);
-setReqKeyFn(reqKey); setClipboardSendFn(sendClipboard);
+setReqKeyFn(reqKey);
 
 const updJitter = (t, cap, prev) => { if (S.jitter.last > 0 && prev > 0) { const d = Math.abs((t - S.jitter.last) - (cap - prev) / 1000); if (d < 1000) { S.jitter.deltas.push(d); S.jitter.deltas.length > 60 && S.jitter.deltas.shift(); } } S.jitter.last = t; };
 
@@ -273,22 +271,21 @@ const frameLag = (fid) => {
     return d < 0x80000000 ? d : 0;
 };
 
-// Determine if a frame should be dropped - aggressive low-latency version
+// Determine if a frame should be dropped
 const shouldDropFrame = (id, fr, rt, newestId) => {
     const age = rt - fr.firstTime;
     const completion = fr.received / fr.total;
     const lag = frameLag(id);
 
-    // Use fixed timeout - no RTT adaptation for lowest latency
     const timeout = C.FRAME_TIMEOUT_MS;
     const keyTimeout = timeout + C.KEYFRAME_GRACE_MS;
 
-    // Drop incomplete frames quickly
+    // Drop incomplete frames after timeout
     if (age > (fr.isKey ? keyTimeout : timeout)) {
         return true;
     }
 
-    // Drop frames that are behind (even if not timed out)
+    // Drop frames that are too far behind
     if (lag > C.MAX_FRAME_LAG) {
         return true;
     }
@@ -301,6 +298,7 @@ const shouldDropFrame = (id, fr, rt, newestId) => {
     return false;
 };
 
+// *** CRITICAL FIX: Always request keyframe when ANY frame is dropped ***
 const tryDrop = (id, fr, rt, reason = 'timeout') => {
     if (fr.received === fr.total) {
         processFrame(id, fr, rt);
@@ -318,21 +316,31 @@ const tryDrop = (id, fr, rt, reason = 'timeout') => {
             lag: frameLag(id)
         });
 
+        // *** THE FIX: Always set needKey and request keyframe when ANY frame is dropped ***
+        // This prevents subsequent delta frames from being sent to the decoder,
+        // which would fail with error -22 because they depend on the dropped frame.
+        S.needKey = true;
+        reqKey();
+
         if (fr.isKey) {
-            S.needKey = true;
-            reqKey();
-            console.warn(`⚠️ Keyframe #${id} dropped! Requesting new keyframe.`);
+            console.warn(`⚠️ Keyframe #${id} dropped! Decoder will wait for new keyframe.`);
+        } else {
+            console.warn(`⚠️ Delta frame #${id} dropped! Requesting keyframe to resync decoder.`);
         }
     }
 };
 
 const processFrame = (fid, fr, rt) => {
-    const ct = performance.now(); if (!fr.parts.every(p => p)) {
+    const ct = performance.now();
+    if (!fr.parts.every(p => p)) {
         S.chunks.delete(fid);
         S.stats.tDropNet++;
         DEBUG.logDrop(fid, 'chunkMissing', {
             partsNull: fr.parts.map((p, i) => p ? null : i).filter(i => i !== null)
         });
+        // Also request keyframe when frame has missing chunks
+        S.needKey = true;
+        reqKey();
         return;
     }
     const buf = fr.total === 1 ? fr.parts[0] : fr.parts.reduce((a, p) => (a.set(p, a.off), a.off += p.byteLength, a), Object.assign(new Uint8Array(fr.parts.reduce((s, p) => s + p.byteLength, 0)), { off: 0 }));
@@ -371,7 +379,6 @@ const handleMsg = e => {
     if (mg === MSG.FPS_ACK && len === 7) { S.currentFps = v.getUint16(4, true); S.currentFpsMode = v.getUint8(6); return; }
     if (mg === MSG.MONITOR_LIST && len >= 6) return parseMonList(e.data);
     if (mg === MSG.AUDIO_DATA && len >= 16) return handleAudioPkt(e.data);
-    if (mg === MSG.CLIPBOARD_TEXT || mg === MSG.CLIPBOARD_IMAGE || mg === MSG.CLIPBOARD_ACK) return handleClipboardMessage(e.data);
     if (len < C.HEADER) return;
 
     S.stats.bytes += len; S.stats.tBytes += len;
@@ -465,7 +472,6 @@ const setupDC = () => {
         validCreds(creds) ? sendAuth(creds.username, creds.pin) : showAuthModal();
         await initDecoder(); clearPing();
         pingInterval = setInterval(() => S.dc?.readyState === 'open' && S.dc.send(mkBuf(16, v => { v.setUint32(0, MSG.PING, true); v.setBigUint64(8, BigInt(tsUs()), true); })), C.PING_MS);
-        startClipboardMonitor(); syncLocalClipboard();
     };
     S.dc.onclose = () => { S.fpsSent = S.authenticated = false; clearPing(); };
     S.dc.onerror = e => console.error('DataChannel:', e);

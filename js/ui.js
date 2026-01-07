@@ -2,7 +2,6 @@ import { S, $, resetStats, Stage } from './state.js';
 import { getLatStats, getJitterStats } from './renderer.js';
 import { setTouchMode } from './input.js';
 import { toggleAudio } from './media.js';
-import { enableClipboard, disableClipboard, isClipboardEnabled } from './clipboard.js';
 
 const loadingEl = $('loadingOverlay'), statusEl = $('loadingStatus'), subEl = $('loadingSubstatus');
 const stages = { ice: $('stageIce'), signal: $('stageSignal'), connect: $('stageConnect'), auth: $('stageAuth'), stream: $('stageStream') };
@@ -60,11 +59,6 @@ const bindTog = (id, key, target) => { const el = $(id); el.onclick = () => { S[
 bindTog('togS', 'statsOn', statsEl); bindTog('togC', 'consoleOn', conEl);
 $('conClr').onclick = clearLogs;
 
-const togClip = $('togClip'), clipSt = $('clipSt'), clipStT = $('clipStT');
-if (togClip) { togClip.onclick = () => { const en = !isClipboardEnabled(); en ? enableClipboard() : disableClipboard();
-    togClip.classList.toggle('on', en); clipSt.classList.toggle('on', en); clipStT.textContent = en ? 'Active' : 'Disabled'; };
-    togClip.onkeydown = e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), togClip.click()); }
-
 fpsSel.onchange = () => applyFpsFn?.(fpsSel.value);
 monSel.onchange = () => sendMonFn?.(+monSel.value);
 $('aBtn').onclick = toggleAudio;
@@ -101,7 +95,7 @@ export const updateStats = () => {
         sec('Stream', row('Monitor', S.monitors.length ? `#${S.currentMon + 1}` : '-'), row('Res', `${S.W}x${S.H}`), row('Codec', `AV1 ${S.hwAccel}`), row('FPS', `${S.currentFps}${mode}`), row('Bitrate', `${fn(br, 1)} Mbps`)),
         sec('FPS', row('In', fn(inF, 1)), row('Decode', fn(decF, 1)), row('Render', fn(rndF, 1))),
         sec('Audio', row('Status', S.audioEnabled ? 'On' : 'Off', S.audioEnabled ? 'g' : ''), row('Pkt/s', fn(aud, 1))),
-        sec('Input', row('Status', S.controlEnabled ? (S.pointerLocked ? 'Locked' : 'On') : 'Off', S.controlEnabled ? 'g' : ''), row('Mouse/s', fn(moves / dt, 0)), row('Click+Key', `${clicks}+${keys}`)),
+        sec('Input', row('Status', S.controlEnabled ? 'On' : 'Off', S.controlEnabled ? 'g' : ''), row('Mouse/s', fn(moves / dt, 0)), row('Click+Key', `${clicks}+${keys}`)),
         sec('Touch', row('Mode', S.touchEnabled ? S.touchMode : 'Off', S.touchEnabled ? 'g' : ''), row('Pos', `${fn(S.touchX)},${fn(S.touchY)}`), row('Zoom', `${fn(S.zoom)}x`)),
         sec('Latency', row('RTT', `${fn(S.rtt, 1)}ms`, clr(S.rtt, 20, 50)), row('Enc', `${fn(enc.avg, 1)}ms`), row('Net', `${fn(net.avg, 1)}ms`), row('Dec', `${fn(dec.avg)}ms`), row('Ren', `${fn(ren.avg)}ms`)),
         sec('Quality', row('Jitter', `${fn(jit.avg)}ms`), row('Sync', S.clockSync ? 'Y' : 'N'), row('Recv', tRecv), row('Drop', `${tDrop} (${fp(tDrop, tFr)}%)`, clr(dropP, 1, 5)))
