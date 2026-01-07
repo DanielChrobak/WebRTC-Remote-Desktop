@@ -94,7 +94,7 @@ int main() {
 
         srv.Get("/", [](auto&, auto& r) { auto c = LoadFile("index.html"); r.set_content(c.empty() ? "<h1>index.html not found</h1>" : c, "text/html"); });
         srv.Get("/styles.css", [](auto&, auto& r) { r.set_content(LoadFile("styles.css"), "text/css"); });
-        for (auto js : {"clipboard", "input", "media", "network", "renderer", "state", "ui"}) srv.Get(std::string("/js/") + js + ".js", [js](auto&, auto& r) { r.set_content(LoadFile((std::string("js/") + js + ".js").c_str()), "application/javascript"); });
+        for (auto js : {"input", "media", "network", "renderer", "state", "ui"}) srv.Get(std::string("/js/") + js + ".js", [js](auto&, auto& r) { r.set_content(LoadFile((std::string("js/") + js + ".js").c_str()), "application/javascript"); });
 
         srv.Post("/api/offer", [&rtc](const httplib::Request& req, httplib::Response& res) {
             try {
