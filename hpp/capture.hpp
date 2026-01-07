@@ -4,7 +4,7 @@
 struct FrameData { ID3D11Texture2D* tex = nullptr; int64_t ts = 0; uint64_t fence = 0; int poolIdx = -1; void Release() { SafeRelease(tex); poolIdx = -1; } };
 
 class FrameSlot {
-    FrameData s[3]; int wi = 0, ri = -1; CRITICAL_SECTION cs; HANDLE ev; uint64_t dc = 0; std::atomic<uint32_t> inFlightMask{0};
+    FrameData s[3]; int wi = 0, ri = -1; CRITICAL_SECTION cs; HANDLE ev; std::atomic<uint32_t> inFlightMask{0};
 public:
     FrameSlot() { InitializeCriticalSection(&cs); ev = CreateEventW(0, 1, 0, 0); }
     ~FrameSlot() { DeleteCriticalSection(&cs); CloseHandle(ev); for (auto& x : s) x.Release(); }
@@ -13,7 +13,7 @@ public:
         if (s[i].poolIdx >= 0) inFlightMask.fetch_and(~(1u << s[i].poolIdx));
         s[i].Release(); t->AddRef(); s[i] = {t, ts, f, poolIdx};
         if (poolIdx >= 0) inFlightMask.fetch_or(1u << poolIdx);
-        if (ri >= 0) dc++; ri = i; SetEvent(ev); LeaveCriticalSection(&cs);
+        ri = i; SetEvent(ev); LeaveCriticalSection(&cs);
     }
     bool Pop(FrameData& o, DWORD ms = 8) {
         if (WaitForSingleObject(ev, ms) != WAIT_OBJECT_0) return false;
@@ -24,7 +24,6 @@ public:
     void MarkReleased(int idx) { if (idx >= 0) inFlightMask.fetch_and(~(1u << idx)); }
     bool IsInFlight(int idx) const { return idx >= 0 && (inFlightMask.load() & (1u << idx)); }
     void Reset() { EnterCriticalSection(&cs); inFlightMask = 0; for (auto& x : s) x.Release(); wi = 0; ri = -1; ResetEvent(ev); LeaveCriticalSection(&cs); }
-    uint64_t GetDropped() { EnterCriticalSection(&cs); uint64_t d = dc; dc = 0; LeaveCriticalSection(&cs); return d; }
     HANDLE GetEvent() const { return ev; }
 };
 
@@ -55,9 +54,9 @@ class ScreenCapture {
     std::atomic<int> tfps{60}, cmi{0}; GPUSync gs; FrameSlot* sl;
     std::atomic<bool> run{true}, cap{false}, fsr{true}, sessStarted{false};
     bool smi = false; int64_t nft = 0; HMONITOR chm = nullptr; std::mutex cmx;
-    std::function<void(int, int, int)> onRes; std::atomic<uint64_t> texConflicts{0};
+    std::function<void(int, int, int)> onRes;
 
-    int FindAvailableTexture() { for (int i = 0; i < TEX_POOL_SIZE; i++) { int idx = (ti + i) % TEX_POOL_SIZE; if (!sl->IsInFlight(idx)) { ti = idx + 1; return idx; } } texConflicts++; return ti++ % TEX_POOL_SIZE; }
+    int FindAvailableTexture() { for (int i = 0; i < TEX_POOL_SIZE; i++) { int idx = (ti + i) % TEX_POOL_SIZE; if (!sl->IsInFlight(idx)) { ti = idx + 1; return idx; } } return ti++ % TEX_POOL_SIZE; }
 
     void OnFrame(WGC::Direct3D11CaptureFramePool const& snd, winrt::Windows::Foundation::IInspectable const&) {
         auto fr = snd.TryGetNextFrame(); if (!fr || !run || !cap) return;
@@ -137,7 +136,6 @@ public:
     bool IsCapturing() const { return cap; }
     bool IsReady(uint64_t f) { return gs.IsComplete(f, ctx); }
     bool WaitReady(uint64_t f) { return gs.Wait(f, ctx); }
-    uint64_t GetTexConflicts() { return texConflicts.exchange(0); }
     ID3D11Device* GetDev() const { return dev; }
     ID3D11DeviceContext* GetCtx() const { return ctx; }
     ID3D11Multithread* GetMT() const { return mt; }
