@@ -4,9 +4,6 @@
 #include "webrtc.hpp"
 #include "audio.hpp"
 #include "input.hpp"
-#include "clipboard.hpp"
-#include <io.h>
-#include <fcntl.h>
 
 std::vector<MonitorInfo> g_monitors;
 std::mutex g_monitorsMutex;
@@ -75,10 +72,6 @@ int main() {
         updateBounds(cap.GetCurrentMonitorIndex());
         rtc->SetInputHandler(&input);
 
-        std::unique_ptr<ClipboardSync> clip;
-        try { clip = std::make_unique<ClipboardSync>(); clip->SetOnChange([rtc](const std::vector<uint8_t>& d) { if (rtc->IsConnected() && rtc->IsAuthenticated()) rtc->SendClipboard(d); });
-            rtc->SetClipboardHandler([&clip](const uint8_t* d, size_t l) { return clip ? clip->HandleMessage(d, l) : false; }); } catch (...) {}
-
         std::unique_ptr<AudioCapture> aud;
         try { aud = std::make_unique<AudioCapture>(); } catch (...) {}
 
@@ -89,7 +82,7 @@ int main() {
 
         cap.SetResolutionChangeCallback([&](int w, int h, int fps) { mkEnc(w, h, fps); });
         rtc->SetGetHostFpsCallback([&cap] { return cap.RefreshHostFPS(); });
-        rtc->SetAuthenticatedCallback([&clip, &input] { if (clip) clip->SendCurrentClipboard(); std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); });
+        rtc->SetAuthenticatedCallback([&input] { std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); });
         rtc->SetFpsChangeCallback([&cap](int fps, uint8_t) { cap.SetFPS(fps); if (!cap.IsCapturing()) cap.StartCapture(); });
         rtc->SetGetCurrentMonitorCallback([&cap] { return cap.GetCurrentMonitorIndex(); });
         rtc->SetMonitorChangeCallback([&cap, &updateBounds, &input](int i) { bool ok = cap.SwitchMonitor(i); if (ok) { updateBounds(i); std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); } return ok; });
@@ -106,13 +99,11 @@ int main() {
         srv.Post("/api/offer", [&rtc](const httplib::Request& req, httplib::Response& res) {
             try {
                 auto body = json::parse(req.body); std::string offerSdp = body["sdp"].get<std::string>();
-                LOG("Received offer from client");
                 rtc->SetRemote(offerSdp, "offer");
                 std::string answer = rtc->GetLocal();
                 if (answer.empty()) { res.status = 500; res.set_content(R"({"error":"Failed to generate answer"})", "application/json"); return; }
                 if (size_t p = answer.find("a=setup:actpass"); p != std::string::npos) answer.replace(p, 15, "a=setup:active");
                 res.set_content(json{{"sdp", answer}, {"type", "answer"}}.dump(), "application/json");
-                LOG("Sent answer to client");
             } catch (const std::exception& e) { ERR("Offer error: %s", e.what()); res.status = 400; res.set_content(R"({"error":"Invalid offer"})", "application/json"); }
         });
 
@@ -133,37 +124,11 @@ int main() {
             while (run) {
                 std::this_thread::sleep_for(1s);
                 auto s = rtc->GetStats();
-                auto dbg = rtc->GetDebugStats();
-                uint64_t ef = 0;
-                { std::lock_guard<std::mutex> lk(em); if (enc) ef = enc->GetEncoded(); }
-                fp[i++ % 10] = ef;
-                int n = std::min(i, 10);
-                uint64_t sm = 0;
-                for (int j = 0; j < n; j++) sm += fp[j];
-
-                // Status indicator
-                const char* status = s.conn
-                    ? (rtc->IsAuthenticated()
-                        ? (rtc->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT]\033[0m")
-                        : "\033[33m[AUTH]\033[0m")
-                    : "\033[33m[WAIT]\033[0m";
-
-                // Basic stats line
-                printf("%s FPS: %3llu @ %d | %5.2f Mbps | V:%4llu A:%3llu | Avg: %.1f",
-                    status, ef, cap.GetCurrentFPS(), s.bytes * 8.0 / 1048576.0,
-                    s.sent, rtc->GetAudioSent(), n > 0 ? (double)sm / n : 0);
-
-                // Debug info if there are issues
-                if (s.dropped > 0 || dbg.bufferOverflows > 0 || dbg.sendFails > 0 || dbg.midFrameDrops > 0) {
-                    printf(" | \033[33mDROP:%llu BUF:%llu FAIL:%llu MID:%llu\033[0m",
-                        s.dropped, dbg.bufferOverflows, dbg.sendFails, dbg.midFrameDrops);
-                }
-
-                // Max buffer usage (useful for debugging)
-                if (dbg.maxBuffered > 16384) {
-                    printf(" | \033[33mMAX_BUF:%zu\033[0m", dbg.maxBuffered);
-                }
-
+                uint64_t ef = 0; { std::lock_guard<std::mutex> lk(em); if (enc) ef = enc->GetEncoded(); }
+                fp[i++ % 10] = ef; int n = std::min(i, 10); uint64_t sm = 0; for (int j = 0; j < n; j++) sm += fp[j];
+                const char* status = s.conn ? (rtc->IsAuthenticated() ? (rtc->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT]\033[0m") : "\033[33m[AUTH]\033[0m") : "\033[33m[WAIT]\033[0m";
+                printf("%s FPS: %3llu @ %d | %5.2f Mbps | V:%4llu A:%3llu | Avg: %.1f", status, ef, cap.GetCurrentFPS(), s.bytes * 8.0 / 1048576.0, s.sent, rtc->GetAudioSent(), n > 0 ? (double)sm / n : 0);
+                if (s.dropped > 0) printf(" | \033[33mDROP:%llu\033[0m", s.dropped);
                 printf("\n");
             }
         });

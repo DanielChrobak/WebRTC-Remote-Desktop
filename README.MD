@@ -1,6 +1,6 @@
 # Remote Desktop
 
-A low-latency WebRTC-based remote desktop solution with AV1 encoding for local network connections.
+Low-latency remote desktop with AV1 hardware encoding and WebRTC. Features multi-monitor support and full mouse/keyboard/touch input control.
 
 ## Features
 
@@ -8,7 +8,6 @@ A low-latency WebRTC-based remote desktop solution with AV1 encoding for local n
 - **WebRTC** - Low-latency peer-to-peer streaming
 - **Audio Capture** - System audio streaming via Opus codec
 - **Full Input Control** - Mouse, keyboard, and touch input support
-- **Clipboard Sync** - Bidirectional text and image clipboard synchronization
 - **Multi-Monitor** - Switch between displays on the fly
 
 ## Architecture
@@ -124,7 +123,6 @@ The host serves these files on port 6060:
 | `js/renderer.js` | WebGL video rendering |
 | `js/input.js` | Mouse/keyboard/touch handling |
 | `js/media.js` | Video/audio decoding |
-| `js/clipboard.js` | Clipboard sync |
 | `js/state.js` | Shared state |
 | `js/ui.js` | Settings panel |
 
