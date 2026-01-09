@@ -96,3 +96,31 @@ foreach(JS_FILE ${JS_FILES})
             $<TARGET_FILE_DIR:ScreenShare>/${JS_FILE}
     )
 endforeach()
+
+# ==========================================
+# Input Helper Service (runs as SYSTEM for UAC support)
+# ==========================================
+add_executable(InputHelper
+    InputHelper.cpp
+)
+
+target_compile_definitions(InputHelper PRIVATE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    _WIN32_WINNT=0x0A00
+    _CRT_SECURE_NO_WARNINGS
+)
+
+if(MSVC)
+    target_compile_options(InputHelper PRIVATE /EHsc /W4 /wd4100)
+endif()
+
+target_link_libraries(InputHelper PRIVATE
+    advapi32
+    user32
+)
+
+set_target_properties(InputHelper PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin/Debug
+    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release
+)
