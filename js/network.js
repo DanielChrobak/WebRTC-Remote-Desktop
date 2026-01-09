@@ -191,12 +191,12 @@ const clearPing = () => { pingInterval && (clearInterval(pingInterval), pingInte
 
 const loadConnSettings = () => { try { const s = JSON.parse(localStorage.getItem(CONN_KEY)); s?.localUrl && (connEl.url.value = s.localUrl); } catch {} };
 const saveConnSettings = () => { try { localStorage.setItem(CONN_KEY, JSON.stringify({ localUrl: connEl.url.value })); } catch {} };
-const showConnModal = (err = '') => { connEl.err.textContent = err; connEl.overlay.classList.add('visible'); hideLoading(); };
-const hideConnModal = () => { connEl.overlay.classList.remove('visible'); connEl.err.textContent = ''; };
+const showConnModal = (err = '') => { connEl.err.textContent = err; connEl.overlay.classList.remove('hidden'); hideLoading(); };
+const hideConnModal = () => { connEl.overlay.classList.add('hidden'); connEl.err.textContent = ''; };
 
 const setAuthErr = (err, el) => { authEl.err.textContent = err; [authEl.user, authEl.pin].forEach(e => e.classList.toggle('error', e === el)); el?.focus(); };
-const showAuthModal = (err = '') => { authEl.user.value = authEl.pin.value = ''; setAuthErr(err, err ? authEl.user : null); authEl.overlay.classList.add('visible'); authEl.btn.disabled = false; setTimeout(() => authEl.user.focus(), 100); };
-const hideAuthModal = () => { authEl.overlay.classList.remove('visible'); setAuthErr('', null); };
+const showAuthModal = (err = '') => { authEl.user.value = authEl.pin.value = ''; setAuthErr(err, err ? authEl.user : null); authEl.overlay.classList.remove('hidden'); authEl.btn.disabled = false; setTimeout(() => authEl.user.focus(), 100); };
+const hideAuthModal = () => { authEl.overlay.classList.add('hidden'); setAuthErr('', null); };
 
 const sendAuth = (u, p) => {
     if (S.dc?.readyState !== 'open') return console.error('DC not open for auth'), false;

@@ -48,13 +48,28 @@ export const setNetCbs = (f, m) => { applyFpsFn = f; sendMonFn = m; };
 
 const pnl = $('pnl'), sc = $('sc'), statsEl = $('stats'), conEl = $('con'), fpsSel = $('fpsSel'), monSel = $('monSel');
 
-const togglePnl = on => { ['pnl', 'bk', 'edge'].forEach(id => $(id).classList.toggle('on', on)); on && $('pnlX').focus(); };
+const togglePnl = on => {
+    // Must remove 'hidden' class when opening, add it back when closing
+    $('pnl').classList.toggle('hidden', !on);
+    $('bk').classList.toggle('hidden', !on);
+    ['pnl', 'bk', 'edge'].forEach(id => $(id).classList.toggle('on', on));
+    on && $('pnlX').focus();
+};
 $('edge').onclick = () => togglePnl(true);
 $('pnlX').onclick = $('bk').onclick = () => togglePnl(false);
 document.onkeydown = e => { if (e.key === 'Escape' && pnl.classList.contains('on') && !S.controlEnabled) togglePnl(false); };
 
-const bindTog = (id, key, target) => { const el = $(id); el.onclick = () => { S[key] = !S[key]; el.classList.toggle('on', S[key]); target.classList.toggle('on', S[key]); };
-    el.onkeydown = e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), el.click()); };
+const bindTog = (id, key, target) => {
+    const el = $(id);
+    el.onclick = () => {
+        S[key] = !S[key];
+        el.classList.toggle('on', S[key]);
+        // Must also toggle hidden class - the !important on .hidden blocks visibility
+        target.classList.toggle('hidden', !S[key]);
+        target.classList.toggle('on', S[key]);
+    };
+    el.onkeydown = e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), el.click());
+};
 
 bindTog('togS', 'statsOn', statsEl); bindTog('togC', 'consoleOn', conEl);
 $('conClr').onclick = clearLogs;
