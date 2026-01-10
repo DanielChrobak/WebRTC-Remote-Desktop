@@ -23,6 +23,7 @@ private:
 
     std::atomic<bool> connected{false}, needsKeyframe{true}, fpsReceived{false};
     std::atomic<bool> gatheringComplete{false}, authenticated{false};
+    std::atomic<bool> hasLocalDescription{false};  // NEW: Track description availability separately
     std::string localDescription, authUsername, authPin;
     std::mutex descMutex, authMutex;
     std::condition_variable descCondition;
@@ -38,6 +39,7 @@ private:
     std::atomic<uint8_t> currentFpsMode{0};
     std::atomic<int64_t> lastPingTime{0};
     std::atomic<bool> pingTimeout{false};
+    std::atomic<int> candidateCount{0};  // NEW: Track candidate count
 
     std::function<void(int, uint8_t)> onFpsChange;
     std::function<int()> getHostFps, getCurrentMonitor;
@@ -178,8 +180,9 @@ private:
         }
 
         connected = needsKeyframe = true;
-        fpsReceived = gatheringComplete = authenticated = false;
+        fpsReceived = gatheringComplete = authenticated = hasLocalDescription = false;
         overflowCount = 0; lastPingTime = 0; pingTimeout = false; authAttempts = 0;
+        candidateCount = 0;
         { std::lock_guard<std::mutex> lock(descMutex); localDescription.clear(); }
 
         peerConnection = std::make_shared<rtc::PeerConnection>(rtcConfig);
@@ -187,24 +190,39 @@ private:
         peerConnection->onLocalDescription([this](rtc::Description d) {
             std::lock_guard<std::mutex> lock(descMutex);
             localDescription = std::string(d);
+            hasLocalDescription = true;
             descCondition.notify_all();
+            LOG("Local description ready");
+        });
+
+        // OPTIMIZATION: Track candidates for faster gathering decision
+        peerConnection->onLocalCandidate([this](rtc::Candidate candidate) {
+            candidateCount++;
+            // Notify after first few candidates for faster response
+            if (candidateCount >= 2) {
+                descCondition.notify_all();
+            }
         });
 
         peerConnection->onStateChange([this](auto state) {
             bool was = connected.load();
             connected = (state == rtc::PeerConnection::State::Connected);
-            if (connected && !was) { needsKeyframe = true; lastPingTime = GetTimestamp() / 1000; }
+            if (connected && !was) { needsKeyframe = true; lastPingTime = GetTimestamp() / 1000; LOG("Peer connected"); }
             if (!connected && was) { fpsReceived = authenticated = false; overflowCount = 0; if (onDisconnect) onDisconnect(); }
         });
 
         peerConnection->onGatheringStateChange([this](auto state) {
-            if (state == rtc::PeerConnection::GatheringState::Complete) { gatheringComplete = true; descCondition.notify_all(); }
+            if (state == rtc::PeerConnection::GatheringState::Complete) {
+                gatheringComplete = true;
+                descCondition.notify_all();
+                LOG("ICE gathering complete (%d candidates)", candidateCount.load());
+            }
         });
 
         peerConnection->onDataChannel([this](auto ch) {
             if (ch->label() != "screen") return;
             dataChannel = ch;
-            dataChannel->onOpen([this] { connected = needsKeyframe = true; authenticated = false; lastPingTime = GetTimestamp() / 1000; overflowCount = authAttempts = 0; });
+            dataChannel->onOpen([this] { connected = needsKeyframe = true; authenticated = false; lastPingTime = GetTimestamp() / 1000; overflowCount = authAttempts = 0; LOG("Data channel opened"); });
             dataChannel->onClosed([this] { connected = fpsReceived = authenticated = false; overflowCount = 0; });
             dataChannel->onMessage([this](auto data) { if (auto* b = std::get_if<rtc::binary>(&data)) HandleMessage(*b); });
         });
@@ -219,12 +237,22 @@ private:
 
 public:
     WebRTCServer() {
+        // OPTIMIZATION: For LAN, we can skip STUN entirely
+        // But keep them for NAT traversal fallback
         rtcConfig.iceServers.push_back(rtc::IceServer("stun:stun.l.google.com:19302"));
         rtcConfig.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
-        rtcConfig.portRangeBegin = 50000; rtcConfig.portRangeEnd = 50100; rtcConfig.enableIceTcp = true;
-        packetBuffer.resize(CHUNK_SIZE); audioBuffer.resize(4096);
+
+        // OPTIMIZATION: Smaller port range = faster port allocation
+        rtcConfig.portRangeBegin = 50000;
+        rtcConfig.portRangeEnd = 50020;  // Reduced from 50100
+
+        // OPTIMIZATION: Prefer UDP for lower latency on LAN
+        rtcConfig.enableIceTcp = false;
+
+        packetBuffer.resize(CHUNK_SIZE);
+        audioBuffer.resize(4096);
         SetupPeerConnection();
-        LOG("WebRTC initialized with STUN");
+        LOG("WebRTC initialized (optimized for fast connection)");
     }
 
     void SetAuthCredentials(const std::string& u, const std::string& p) { std::lock_guard<std::mutex> lock(authMutex); authUsername = u; authPin = p; }
@@ -236,9 +264,31 @@ public:
     void SetDisconnectCallback(std::function<void()> cb) { onDisconnect = cb; }
     void SetAuthenticatedCallback(std::function<void()> cb) { onAuthenticated = cb; }
 
+    // OPTIMIZATION: Don't wait for complete ICE gathering!
+    // Return as soon as we have the local description and some candidates
     std::string GetLocal() {
         std::unique_lock<std::mutex> lock(descMutex);
-        descCondition.wait_for(lock, 5s, [this] { return !localDescription.empty() && gatheringComplete.load(); });
+
+        // First, wait for local description (very fast, ~10-50ms)
+        if (!descCondition.wait_for(lock, 200ms, [this] {
+            return hasLocalDescription.load();
+        })) {
+            WARN("Timeout waiting for local description");
+            return localDescription;
+        }
+
+        // OPTIMIZATION: For LAN, don't wait for gathering to complete!
+        // Just wait for a few candidates or a short timeout
+        // Host candidates are discovered almost instantly on LAN
+        descCondition.wait_for(lock, 150ms, [this] {
+            // Return early if we have enough candidates or gathering is done
+            return gatheringComplete.load() || candidateCount.load() >= 2;
+        });
+
+        LOG("Returning answer with %d candidates (gathering %s)",
+            candidateCount.load(),
+            gatheringComplete.load() ? "complete" : "partial");
+
         return localDescription;
     }
 

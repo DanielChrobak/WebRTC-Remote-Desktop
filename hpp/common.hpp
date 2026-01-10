@@ -1,6 +1,6 @@
 /**
  * @file common.hpp
- * @brief Common definitions, includes, and utilities for WebRTC Remote Desktop
+ * @brief Common definitions, includes, and utilities for SlipStream
  * @copyright 2025-2026 Daniel Chrobak
  */
 
