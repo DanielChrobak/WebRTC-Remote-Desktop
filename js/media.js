@@ -10,32 +10,17 @@ import { render } from './renderer.js';
 let reqKey = null;
 let sources = [];
 
-/**
- * Sets the keyframe request callback.
- * @param {function} fn - Callback function
- */
-export const setReqKeyFn = fn => {
-    reqKey = fn;
-};
+export const setReqKeyFn = fn => { reqKey = fn; };
 
-/**
- * Initializes or reinitializes the video decoder.
- * @param {boolean} force - Force full reinitialization
- */
 export const initDecoder = async (force = false) => {
-    if (!window.VideoDecoder) {
-        console.error('VideoDecoder not supported');
-        return;
-    }
+    if (!window.VideoDecoder) return console.error('VideoDecoder not supported');
 
     S.ready = false;
     S.needKey = true;
     S.lastCapTs = 0;
     if (force) S.W = S.H = 0;
 
-    try {
-        if (S.decoder?.state !== 'closed') S.decoder.close();
-    } catch {}
+    try { if (S.decoder?.state !== 'closed') S.decoder.close(); } catch {}
 
     const dec = new VideoDecoder({
         output: f => render(f, S.frameMeta.get(f.timestamp)),
@@ -44,117 +29,48 @@ export const initDecoder = async (force = false) => {
             S.ready = true;
             S.needKey = true;
             reqKey?.();
-
-            if (!S.reinit) {
-                S.reinit = true;
-                setTimeout(async () => {
-                    await initDecoder();
-                    S.reinit = false;
-                }, 50);
-            }
+            if (!S.reinit) { S.reinit = true; setTimeout(async () => { await initDecoder(); S.reinit = false; }, 50); }
         }
     });
 
     S.decoder = dec;
 
     for (const [hw, label] of [[true, 'HW'], [false, 'SW']]) {
-        const cfg = {
-            codec: C.CODEC,
-            optimizeForLatency: true,
-            latencyMode: 'realtime',
-            hardwareAcceleration: hw ? 'prefer-hardware' : 'prefer-software'
-        };
-
+        const cfg = { codec: C.CODEC, optimizeForLatency: true, latencyMode: 'realtime', hardwareAcceleration: hw ? 'prefer-hardware' : 'prefer-software' };
         try {
             const sup = await VideoDecoder.isConfigSupported(cfg);
-            if (sup.supported) {
-                dec.configure(sup.config);
-                S.hwAccel = label;
-                console.info(`Decoder: ${label}`);
-                break;
-            }
+            if (sup.supported) { dec.configure(sup.config); S.hwAccel = label; console.info(`Decoder: ${label}`); break; }
         } catch {}
     }
 
-    if (dec.state !== 'configured') {
-        console.error('Decoder config failed');
-        S.hwAccel = 'NONE';
-        return;
-    }
-
+    if (dec.state !== 'configured') { console.error('Decoder config failed'); S.hwAccel = 'NONE'; return; }
     S.ready = true;
     reqKey?.();
 };
 
-/**
- * Decodes a video frame.
- * @param {Object} data - Frame data object
- */
 export const decodeFrame = data => {
-    if (!S.ready || (!data.isKey && S.needKey)) {
-        S.stats.tDropDec++;
-        if (!S.ready) reqKey?.();
-        return;
-    }
-
+    if (!S.ready || (!data.isKey && S.needKey)) { S.stats.tDropDec++; if (!S.ready) reqKey?.(); return; }
     if (!S.decoder || S.decoder.state !== 'configured') {
         S.stats.tDropDec++;
-        if (!S.reinit) {
-            S.reinit = true;
-            setTimeout(async () => {
-                await initDecoder();
-                S.reinit = false;
-            }, 50);
-        }
+        if (!S.reinit) { S.reinit = true; setTimeout(async () => { await initDecoder(); S.reinit = false; }, 50); }
         return;
     }
 
     try {
         const q = S.decoder.decodeQueueSize;
-
-        if ((q > 4 && !data.isKey) || q > 6) {
-            reqKey?.();
-            S.stats.tDropDec++;
-            return;
-        }
-
-        if (!Number.isFinite(data.capTs) || data.capTs < 0) {
-            S.stats.tDropDec++;
-            return;
-        }
+        if ((q > 4 && !data.isKey) || q > 6) { reqKey?.(); S.stats.tDropDec++; return; }
+        if (!Number.isFinite(data.capTs) || data.capTs < 0) { S.stats.tDropDec++; return; }
 
         const ds = performance.now();
-        S.frameMeta.set(data.capTs, {
-            capTs: data.capTs,
-            encMs: data.encMs,
-            netMs: data.netMs,
-            queueMs: ds - data.fcT,
-            decStart: ds
-        });
+        S.frameMeta.set(data.capTs, { capTs: data.capTs, encMs: data.encMs, netMs: data.netMs, queueMs: ds - data.fcT, decStart: ds });
+        if (S.frameMeta.size > 30) [...S.frameMeta.keys()].sort((a, b) => a - b).slice(0, -20).forEach(k => S.frameMeta.delete(k));
 
-        if (S.frameMeta.size > 30) {
-            [...S.frameMeta.keys()]
-                .sort((a, b) => a - b)
-                .slice(0, -20)
-                .forEach(k => S.frameMeta.delete(k));
-        }
-
-        const dur = S.lastCapTs > 0 && data.capTs > S.lastCapTs
-            ? data.capTs - S.lastCapTs
-            : 16667;
-
+        const dur = S.lastCapTs > 0 && data.capTs > S.lastCapTs ? data.capTs - S.lastCapTs : 16667;
         S.lastCapTs = data.capTs;
 
-        S.decoder.decode(new EncodedVideoChunk({
-            type: data.isKey ? 'key' : 'delta',
-            timestamp: data.capTs,
-            duration: dur,
-            data: data.buf
-        }));
-
+        S.decoder.decode(new EncodedVideoChunk({ type: data.isKey ? 'key' : 'delta', timestamp: data.capTs, duration: dur, data: data.buf }));
         S.stats.dec++;
         S.stats.tDec++;
-
         if (data.isKey) S.needKey = false;
     } catch (e) {
         console.error('Decode:', e.message);
@@ -165,61 +81,30 @@ export const decodeFrame = data => {
     }
 };
 
-/**
- * Initializes the audio context and decoder.
- * @returns {Promise<boolean>} True if initialization succeeded
- */
 export const initAudio = async () => {
     if (S.audioCtx) return true;
 
     try {
-        const ctx = new (window.AudioContext || window.webkitAudioContext)({
-            sampleRate: C.AUDIO_RATE,
-            latencyHint: 'interactive'
-        });
-
+        const ctx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: C.AUDIO_RATE, latencyHint: 'interactive' });
         const gain = ctx.createGain();
         gain.gain.value = 1;
         gain.connect(ctx.destination);
-
         S.audioCtx = ctx;
         S.audioGain = gain;
-
-        if (ctx.state === 'suspended') {
-            await ctx.resume();
-        }
+        if (ctx.state === 'suspended') await ctx.resume();
 
         if (window.AudioDecoder) {
             try {
-                const d = new AudioDecoder({
-                    output: ad => S.audioEnabled && S.audioCtx && playAudio(ad),
-                    error: e => console.warn('Audio decode:', e.message)
-                });
-
-                d.configure({
-                    codec: 'opus',
-                    sampleRate: C.AUDIO_RATE,
-                    numberOfChannels: C.AUDIO_CH
-                });
-
+                const d = new AudioDecoder({ output: ad => S.audioEnabled && S.audioCtx && playAudio(ad), error: e => console.warn('Audio decode:', e.message) });
+                d.configure({ codec: 'opus', sampleRate: C.AUDIO_RATE, numberOfChannels: C.AUDIO_CH });
                 S.audioDecoder = d;
-            } catch (e) {
-                console.warn('AudioDecoder unavailable:', e.message);
-            }
+            } catch (e) { console.warn('AudioDecoder unavailable:', e.message); }
         }
-
         console.info('Audio initialized:', ctx.sampleRate, 'Hz');
         return true;
-    } catch (e) {
-        console.error('Audio init failed:', e.message);
-        return false;
-    }
+    } catch (e) { console.error('Audio init failed:', e.message); return false; }
 };
 
-/**
- * Plays decoded audio data.
- * @param {AudioData} ad - Decoded audio data
- */
 const playAudio = ad => {
     const { audioCtx: ctx, audioGain: gain } = S;
     if (!ctx || !gain) return;
@@ -227,118 +112,53 @@ const playAudio = ad => {
     try {
         const { numberOfFrames: nf, numberOfChannels: nc, format: fmt, sampleRate: sr } = ad;
         const buf = ctx.createBuffer(nc, nf, sr);
-        const isPlanar = fmt.includes('planar');
-        const isS16 = fmt.includes('s16');
+        const isPlanar = fmt.includes('planar'), isS16 = fmt.includes('s16');
 
         for (let ch = 0; ch < nc; ch++) {
             const pi = isPlanar ? ch : 0;
-            const sz = ad.allocationSize({ planeIndex: pi });
-            const tv = isS16 ? new Int16Array(sz / 2) : new Float32Array(sz / 4);
+            const tv = isS16 ? new Int16Array(ad.allocationSize({ planeIndex: pi }) / 2) : new Float32Array(ad.allocationSize({ planeIndex: pi }) / 4);
             const cd = new Float32Array(nf);
-
             ad.copyTo(tv, { planeIndex: pi });
-
-            for (let i = 0; i < nf; i++) {
-                cd[i] = isS16
-                    ? tv[isPlanar ? i : i * nc + ch] / 32768
-                    : tv[isPlanar ? i : i * nc + ch];
-            }
-
+            for (let i = 0; i < nf; i++) cd[i] = isS16 ? tv[isPlanar ? i : i * nc + ch] / 32768 : tv[isPlanar ? i : i * nc + ch];
             buf.copyToChannel(cd, ch);
         }
 
-        const dur = nf / sr;
-        const now = ctx.currentTime;
-        const needsReset = !S.audioPlaying ||
-                          S.audioNextTime < now - 0.1 ||
-                          S.audioNextTime > now + 0.5;
+        const dur = nf / sr, now = ctx.currentTime;
+        const needsReset = !S.audioPlaying || S.audioNextTime < now - 0.1 || S.audioNextTime > now + 0.5;
 
-        if (needsReset && sources.length) {
-            sources.forEach(s => {
-                try {
-                    s.stop();
-                    s.disconnect();
-                } catch {}
-            });
-            sources = [];
-        }
+        if (needsReset && sources.length) { sources.forEach(s => { try { s.stop(); s.disconnect(); } catch {} }); sources = []; }
 
-        const st = needsReset
-            ? (S.audioPlaying = true, now + C.AUDIO_BUF)
-            : S.audioNextTime;
-
+        const st = needsReset ? (S.audioPlaying = true, now + C.AUDIO_BUF) : S.audioNextTime;
         const src = ctx.createBufferSource();
         src.buffer = buf;
         src.connect(gain);
         src.start(st);
-
         sources.push(src);
-        src.onended = () => {
-            const i = sources.indexOf(src);
-            if (i >= 0) sources.splice(i, 1);
-        };
-
-        while (sources.length > 10) {
-            try {
-                sources.shift().disconnect();
-            } catch {}
-        }
-
+        src.onended = () => { const i = sources.indexOf(src); if (i >= 0) sources.splice(i, 1); };
+        while (sources.length > 10) try { sources.shift().disconnect(); } catch {}
         S.audioNextTime = st + dur;
-    } catch {} finally {
-        ad.close();
-    }
+    } catch {} finally { ad.close(); }
 };
 
-/**
- * Handles incoming audio packets.
- * @param {ArrayBuffer} data - Audio packet data
- */
 export const handleAudioPkt = data => {
     if (!S.audioEnabled || !S.audioCtx) return;
-
     S.stats.audio++;
     S.stats.tAudio++;
 
     const v = new DataView(data);
-    const samples = v.getUint16(12, true);
-    const len = v.getUint16(14, true);
+    const samples = v.getUint16(12, true), len = v.getUint16(14, true);
+    if (len > data.byteLength - C.AUDIO_HEADER || S.audioDecoder?.state !== 'configured') return;
 
-    if (len > data.byteLength - C.AUDIO_HEADER || S.audioDecoder?.state !== 'configured') {
-        return;
-    }
-
-    try {
-        S.audioDecoder.decode(new EncodedAudioChunk({
-            type: 'key',
-            timestamp: performance.now() * 1000,
-            duration: (samples / C.AUDIO_RATE) * 1e6,
-            data: new Uint8Array(data, C.AUDIO_HEADER, len)
-        }));
-    } catch {}
+    try { S.audioDecoder.decode(new EncodedAudioChunk({ type: 'key', timestamp: performance.now() * 1000, duration: (samples / C.AUDIO_RATE) * 1e6, data: new Uint8Array(data, C.AUDIO_HEADER, len) })); } catch {}
 };
 
-/**
- * Toggles audio playback on/off.
- */
 export const toggleAudio = () => {
-    const btn = $('aBtn');
-    const st = $('aSt');
-    const stT = $('aStT');
-    const btnT = $('aTxt');
+    const btn = $('aBtn'), st = $('aSt'), stT = $('aStT'), btnT = $('aTxt');
 
     if (!S.audioEnabled) {
         initAudio().then(ok => {
-            if (ok) {
-                S.audioEnabled = S.audioPlaying = true;
-                S.audioNextTime = 0;
-                btn.classList.add('on');
-                st.classList.add('on');
-                btnT.textContent = 'Disable';
-                stT.textContent = 'Audio active';
-            } else {
-                stT.textContent = 'Audio failed';
-            }
+            if (ok) { S.audioEnabled = S.audioPlaying = true; S.audioNextTime = 0; btn.classList.add('on'); st.classList.add('on'); btnT.textContent = 'Disable'; stT.textContent = 'Audio active'; }
+            else stT.textContent = 'Audio failed';
         });
     } else {
         S.audioEnabled = S.audioPlaying = false;
@@ -350,7 +170,4 @@ export const toggleAudio = () => {
     }
 };
 
-/**
- * Closes the audio context.
- */
 export const closeAudio = () => S.audioCtx?.close();
