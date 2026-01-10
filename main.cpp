@@ -428,7 +428,7 @@ int main() {
                     sum += fpsHistory[i];
                 }
 
-                const char* status = stats.conn
+                const char* status = stats.connected
                     ? (rtcServer->IsAuthenticated()
                         ? (rtcServer->IsFpsReceived() ? "\033[32m[LIVE]\033[0m" : "\033[33m[WAIT]\033[0m")
                         : "\033[33m[AUTH]\033[0m")
