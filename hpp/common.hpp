@@ -49,37 +49,20 @@ using namespace std::chrono;
 namespace WGC = winrt::Windows::Graphics::Capture;
 namespace WGD = winrt::Windows::Graphics::DirectX;
 
-/**
- * @brief Console logging macros with color support
- */
 #define LOG(fmt, ...)  printf("[LOG] " fmt "\n", ##__VA_ARGS__)
 #define WARN(fmt, ...) printf("\033[33m[WARN] " fmt "\033[0m\n", ##__VA_ARGS__)
 #define ERR(fmt, ...)  fprintf(stderr, "\033[31m[ERR] " fmt "\033[0m\n", ##__VA_ARGS__)
 
-/**
- * @brief Message type identifiers for WebRTC data channel protocol
- */
 enum MsgType : uint32_t {
-    MSG_PING          = 0x504E4750,
-    MSG_FPS_SET       = 0x46505343,
-    MSG_HOST_INFO     = 0x484F5354,
-    MSG_FPS_ACK       = 0x46505341,
-    MSG_REQUEST_KEY   = 0x4B455952,
-    MSG_MONITOR_LIST  = 0x4D4F4E4C,
-    MSG_MONITOR_SET   = 0x4D4F4E53,
-    MSG_AUDIO_DATA    = 0x41554449,
-    MSG_MOUSE_MOVE    = 0x4D4F5645,
-    MSG_MOUSE_BTN     = 0x4D42544E,
-    MSG_MOUSE_WHEEL   = 0x4D57484C,
-    MSG_KEY           = 0x4B455920,
-    MSG_AUTH_REQUEST  = 0x41555448,
-    MSG_AUTH_RESPONSE = 0x41555452
+    MSG_PING          = 0x504E4750, MSG_FPS_SET       = 0x46505343,
+    MSG_HOST_INFO     = 0x484F5354, MSG_FPS_ACK       = 0x46505341,
+    MSG_REQUEST_KEY   = 0x4B455952, MSG_MONITOR_LIST  = 0x4D4F4E4C,
+    MSG_MONITOR_SET   = 0x4D4F4E53, MSG_AUDIO_DATA    = 0x41554449,
+    MSG_MOUSE_MOVE    = 0x4D4F5645, MSG_MOUSE_BTN     = 0x4D42544E,
+    MSG_MOUSE_WHEEL   = 0x4D57484C, MSG_KEY           = 0x4B455920,
+    MSG_AUTH_REQUEST  = 0x41555448, MSG_AUTH_RESPONSE = 0x41555452
 };
 
-/**
- * @brief Returns the current timestamp in microseconds since Unix epoch
- * @return High-precision timestamp in microseconds
- */
 inline int64_t GetTimestamp() {
     FILETIME ft;
     GetSystemTimePreciseAsFileTime(&ft);
@@ -87,43 +70,22 @@ inline int64_t GetTimestamp() {
     return static_cast<int64_t>((uli.QuadPart - 116444736000000000ULL) / 10);
 }
 
-/**
- * @brief Safely releases COM objects and sets pointers to nullptr
- * @tparam T Variadic template for multiple COM pointer types
- * @param p COM interface pointers to release
- */
 template<typename... T>
 void SafeRelease(T*&... p) {
     ((p ? (p->Release(), p = nullptr) : nullptr), ...);
 }
 
-/**
- * @brief RAII wrapper for D3D11 multithread protection
- */
 struct MTLock {
     ID3D11Multithread* mt;
-
-    explicit MTLock(ID3D11Multithread* m) : mt(m) {
-        if (mt) mt->Enter();
-    }
-
-    ~MTLock() {
-        if (mt) mt->Leave();
-    }
-
+    MTLock(ID3D11Multithread* m) : mt(m) { if (mt) mt->Enter(); }
+    ~MTLock() { if (mt) mt->Leave(); }
     MTLock(const MTLock&) = delete;
     MTLock& operator=(const MTLock&) = delete;
 };
 
-/**
- * @brief Monitor display information structure
- */
 struct MonitorInfo {
     HMONITOR hMon;
-    int index;
-    int width;
-    int height;
-    int refreshRate;
+    int index, width, height, refreshRate;
     bool isPrimary;
     std::string name;
 };
@@ -131,7 +93,4 @@ struct MonitorInfo {
 extern std::vector<MonitorInfo> g_monitors;
 extern std::mutex g_monitorsMutex;
 
-/**
- * @brief Refreshes the global monitor list with current display information
- */
 void RefreshMonitorList();
