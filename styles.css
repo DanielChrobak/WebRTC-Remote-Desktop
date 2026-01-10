@@ -86,6 +86,67 @@ body {
 }
 
 /* ==========================================================================
+   Escape Hold Indicator
+   ========================================================================== */
+
+.escape-indicator {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2000;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s, visibility 0.15s;
+  pointer-events: none;
+}
+
+.escape-indicator.visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.escape-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 24px 36px;
+  background: rgba(10, 10, 11, 0.95);
+  border: 1px solid var(--bd);
+  border-radius: 12px;
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+}
+
+.escape-progress {
+  width: 120px;
+  height: 6px;
+  background: var(--s3);
+  border-radius: 3px;
+  overflow: hidden;
+  position: relative;
+}
+
+.escape-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: var(--progress, 0%);
+  background: linear-gradient(90deg, var(--wn), var(--er));
+  border-radius: 3px;
+  transition: width 0.05s linear;
+}
+
+.escape-text {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t2);
+  text-align: center;
+}
+
+/* ==========================================================================
    Loading Overlay
    ========================================================================== */
 
@@ -1129,6 +1190,23 @@ body {
   .auth-container { max-width: 260px; }
   .auth-icon { width: 36px; height: 36px; margin-bottom: 10px; }
   .auth-title { font-size: 16px; }
+
+  .escape-content {
+    padding: 18px 16px;
+    border-radius: 10px;
+    gap: 10px;
+  }
+  .escape-progress {
+    width: 90px;
+    height: 5px;
+    border-radius: 2px;
+  }
+  .escape-progress::after {
+    border-radius: 2px;
+  }
+  .escape-text {
+    font-size: 12px;
+  }
 }
 
 /* ==========================================================================
@@ -1191,6 +1269,23 @@ body {
 
   .stats { max-height: calc(100vh - 20px); }
   .con { max-height: 35vh; }
+
+  .escape-content {
+    padding: 12px 10px;
+    border-radius: 8px;
+    gap: 8px;
+  }
+  .escape-progress {
+    width: 70px;
+    height: 4px;
+    border-radius: 2px;
+  }
+  .escape-progress::after {
+    border-radius: 2px;
+  }
+  .escape-text {
+    font-size: 11px;
+  }
 }
 
 @media (max-height: 380px) and (orientation: landscape) {
@@ -1201,6 +1296,23 @@ body {
   .auth-title { font-size: 13px; }
   .auth-input { padding: 6px 8px; font-size: 12px; }
   .auth-btn { padding: 6px; }
+
+  .escape-content {
+    padding: 8px 6px;
+    border-radius: 6px;
+    gap: 6px;
+  }
+  .escape-progress {
+    width: 50px;
+    height: 3px;
+    border-radius: 1px;
+  }
+  .escape-progress::after {
+    border-radius: 1px;
+  }
+  .escape-text {
+    font-size: 10px;
+  }
 }
 
 /* ==========================================================================
@@ -1211,12 +1323,46 @@ body {
   .pnl { width: 240px; }
   .stats { min-width: 300px; }
   .con { width: 340px; }
+
+  .escape-content {
+    padding: 20px 28px;
+    border-radius: 10px;
+    gap: 10px;
+  }
+  .escape-progress {
+    width: 100px;
+    height: 5px;
+    border-radius: 2px;
+  }
+  .escape-progress::after {
+    border-radius: 2px;
+  }
+  .escape-text {
+    font-size: 12px;
+  }
 }
 
 @media (min-width: 1400px) {
   .pnl { width: 280px; }
   .stats { min-width: 380px; }
   .con { width: 440px; }
+
+  .escape-content {
+    padding: 28px 44px;
+    border-radius: 14px;
+    gap: 14px;
+  }
+  .escape-progress {
+    width: 140px;
+    height: 7px;
+    border-radius: 4px;
+  }
+  .escape-progress::after {
+    border-radius: 4px;
+  }
+  .escape-text {
+    font-size: 14px;
+  }
 }
 
 /* ==========================================================================
