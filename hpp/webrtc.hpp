@@ -22,7 +22,7 @@ class WebRTCServer {
     std::atomic<int> overflows{0}; std::atomic<int64_t> lastPing{0}; std::atomic<bool> pingTimeout{false};
     std::function<void(int, uint8_t)> onFps; std::function<int()> getHfps, getCmon;
     std::function<bool(int)> onMon; std::function<void()> onDisconnect, onAuth;
-    InputHandler* input = nullptr; std::function<bool(const uint8_t*, size_t)> clipHandler;
+    InputHandler* input = nullptr;
 
     bool SafeSend(const void* d, size_t l) { auto ch = dc; if (!ch || !ch->isOpen()) return false; try { ch->send((const std::byte*)d, l); return true; } catch (...) { return false; } }
 
@@ -73,7 +73,6 @@ class WebRTCServer {
         }
         if (!authenticated) return;
         if (input && (mg == MSG_MOUSE_MOVE || mg == MSG_MOUSE_BTN || mg == MSG_MOUSE_WHEEL || mg == MSG_KEY)) { input->HandleMessage(reinterpret_cast<const uint8_t*>(b.data()), b.size()); return; }
-        if ((mg == MSG_CLIPBOARD_TEXT || mg == MSG_CLIPBOARD_IMAGE || mg == MSG_CLIPBOARD_REQUEST) && clipHandler) { clipHandler(reinterpret_cast<const uint8_t*>(b.data()), b.size()); return; }
         if (mg == MSG_PING && b.size() == 16) { lastPing = GetTimestamp() / 1000; overflows = 0; pingTimeout = false; uint8_t p[24]; memcpy(p, b.data(), 16); *(uint64_t*)(p+16) = GetTimestamp(); SafeSend(p, 24); }
         else if (mg == MSG_FPS_SET && b.size() == 7) {
             uint16_t fps = *(uint16_t*)(reinterpret_cast<const uint8_t*>(b.data())+4); uint8_t md = static_cast<uint8_t>(b[6]);
@@ -118,7 +117,6 @@ public:
     void SetMonitorChangeCallback(std::function<bool(int)> cb) { onMon = cb; }
     void SetGetCurrentMonitorCallback(std::function<int()> cb) { getCmon = cb; }
     void SetDisconnectCallback(std::function<void()> cb) { onDisconnect = cb; }
-    void SetClipboardHandler(std::function<bool(const uint8_t*, size_t)> cb) { clipHandler = cb; }
     void SetAuthenticatedCallback(std::function<void()> cb) { onAuth = cb; }
 
     std::string GetLocal() { std::unique_lock<std::mutex> lk(dmx); dcv.wait_for(lk, 5s, [this] { return !ldesc.empty() && gc.load(); }); return ldesc; }
@@ -162,8 +160,6 @@ public:
             if (SafeSend(ab.data(), tl)) { bc += tl; asc++; }
         } catch (...) {}
     }
-
-    void SendClipboard(const std::vector<uint8_t>& data) { if (!conn || !authenticated || data.empty()) return; auto ch = dc; if (!ch || !ch->isOpen() || ch->bufferedAmount() > BT / 2) return; SafeSend(data.data(), data.size()); }
 
     struct Stats { uint64_t sent, bytes, dropped; bool conn; };
     Stats GetStats() { return {sc.exchange(0), bc.exchange(0), dpc.exchange(0), conn.load()}; }
