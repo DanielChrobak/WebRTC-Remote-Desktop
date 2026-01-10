@@ -28,6 +28,7 @@ set(HEADERS
     hpp/webrtc.hpp
     hpp/audio.hpp
     hpp/input.hpp
+    hpp/clipboard.hpp
 )
 
 set(SOURCES main.cpp)
@@ -35,6 +36,7 @@ set(SOURCES main.cpp)
 set(WEB_FILES index.html styles.css)
 
 set(JS_FILES
+    js/clipboard.js
     js/input.js
     js/media.js
     js/network.js
@@ -97,30 +99,10 @@ foreach(JS_FILE ${JS_FILES})
     )
 endforeach()
 
-# ==========================================
-# Input Helper Service (runs as SYSTEM for UAC support)
-# ==========================================
-add_executable(InputHelper
-    InputHelper.cpp
-)
-
-target_compile_definitions(InputHelper PRIVATE
-    WIN32_LEAN_AND_MEAN
-    NOMINMAX
-    _WIN32_WINNT=0x0A00
-    _CRT_SECURE_NO_WARNINGS
-)
-
-if(MSVC)
-    target_compile_options(InputHelper PRIVATE /EHsc /W4 /wd4100)
-endif()
-
-target_link_libraries(InputHelper PRIVATE
-    advapi32
-    user32
-)
-
-set_target_properties(InputHelper PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin/Debug
-    RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release
-)
+foreach(CONFIG_FILE ${CONFIG_FILES})
+    add_custom_command(TARGET ScreenShare POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/${CONFIG_FILE}
+            $<TARGET_FILE_DIR:ScreenShare>/${CONFIG_FILE}
+    )
+endforeach()

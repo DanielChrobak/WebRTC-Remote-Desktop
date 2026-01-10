@@ -1,6 +1,6 @@
 # Remote Desktop
 
-Low-latency remote desktop with AV1 hardware encoding and WebRTC. Features multi-monitor support and full mouse/keyboard/touch input control.
+A low-latency WebRTC-based remote desktop solution with AV1 encoding for local network connections.
 
 ## Features
 
@@ -8,6 +8,7 @@ Low-latency remote desktop with AV1 hardware encoding and WebRTC. Features multi
 - **WebRTC** - Low-latency peer-to-peer streaming
 - **Audio Capture** - System audio streaming via Opus codec
 - **Full Input Control** - Mouse, keyboard, and touch input support
+- **Clipboard Sync** - Bidirectional text and image clipboard synchronization
 - **Multi-Monitor** - Switch between displays on the fly
 
 ## Architecture
@@ -123,8 +124,30 @@ The host serves these files on port 6060:
 | `js/renderer.js` | WebGL video rendering |
 | `js/input.js` | Mouse/keyboard/touch handling |
 | `js/media.js` | Video/audio decoding |
+| `js/clipboard.js` | Clipboard sync |
 | `js/state.js` | Shared state |
 | `js/ui.js` | Settings panel |
+
+---
+
+## Troubleshooting
+
+### Connection Issues
+
+**No video after connecting**
+- Check if authentication succeeded
+- The host console shows `[LIVE]` when streaming
+- Try refreshing the page
+
+### Build Issues
+
+**vcpkg not found**
+- Set `VCPKG_ROOT` environment variable, or
+- Install vcpkg to `C:\vcpkg`
+
+**FFmpeg/libdatachannel errors**
+- Run `vcpkg install --triplet x64-windows` manually
+- Check that Visual Studio 2022 is installed with C++ workload
 
 ---
 
@@ -137,4 +160,4 @@ The host serves these files on port 6060:
 
 ## License
 
-BSL 1.1
+MIT

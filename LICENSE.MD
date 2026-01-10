@@ -3,6 +3,8 @@
 License structure based on Business Source License 1.1 (© 2017 MariaDB Corporation Ab).  
 This license text (as modified) © 2026 Daniel Chrobak.
 
+> Not legal advice. This is a draft intended to improve clarity and enforcement posture.
+
 ---
 
 ## Parameters
@@ -119,5 +121,3 @@ This License is governed by Illinois law, excluding conflict-of-law rules, and a
 If any provision is held unenforceable, it will be reformed to the minimum extent necessary to be enforceable, and the remainder will stay in effect.
 
 This License is the entire agreement for the Work unless Licensor and You sign a separate written license.
-
-

@@ -11,7 +11,7 @@
     "openssl",
     {
       "name": "ffmpeg",
-      "features": ["aom", "nvcodec", "qsv", "amf", "avcodec"]
+      "features": ["aom", "vpx", "nvcodec", "qsv", "amf", "avcodec", "avformat", "swscale"]
     }
   ]
 }
