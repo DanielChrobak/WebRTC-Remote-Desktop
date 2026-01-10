@@ -4,7 +4,6 @@
 #include "webrtc.hpp"
 #include "audio.hpp"
 #include "input.hpp"
-#include "clipboard.hpp"
 #include <io.h>
 #include <fcntl.h>
 
@@ -75,10 +74,6 @@ int main() {
         updateBounds(cap.GetCurrentMonitorIndex());
         rtc->SetInputHandler(&input);
 
-        std::unique_ptr<ClipboardSync> clip;
-        try { clip = std::make_unique<ClipboardSync>(); clip->SetOnChange([rtc](const std::vector<uint8_t>& d) { if (rtc->IsConnected() && rtc->IsAuthenticated()) rtc->SendClipboard(d); });
-            rtc->SetClipboardHandler([&clip](const uint8_t* d, size_t l) { return clip ? clip->HandleMessage(d, l) : false; }); } catch (...) {}
-
         std::unique_ptr<AudioCapture> aud;
         try { aud = std::make_unique<AudioCapture>(); } catch (...) {}
 
@@ -89,7 +84,7 @@ int main() {
 
         cap.SetResolutionChangeCallback([&](int w, int h, int fps) { mkEnc(w, h, fps); });
         rtc->SetGetHostFpsCallback([&cap] { return cap.RefreshHostFPS(); });
-        rtc->SetAuthenticatedCallback([&clip, &input] { if (clip) clip->SendCurrentClipboard(); std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); });
+        rtc->SetAuthenticatedCallback([&input] { std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); });
         rtc->SetFpsChangeCallback([&cap](int fps, uint8_t) { cap.SetFPS(fps); if (!cap.IsCapturing()) cap.StartCapture(); });
         rtc->SetGetCurrentMonitorCallback([&cap] { return cap.GetCurrentMonitorIndex(); });
         rtc->SetMonitorChangeCallback([&cap, &updateBounds, &input](int i) { bool ok = cap.SwitchMonitor(i); if (ok) { updateBounds(i); std::thread([&input] { std::this_thread::sleep_for(100ms); input.WiggleCenter(); }).detach(); } return ok; });
@@ -101,7 +96,7 @@ int main() {
 
         srv.Get("/", [](auto&, auto& r) { auto c = LoadFile("index.html"); r.set_content(c.empty() ? "<h1>index.html not found</h1>" : c, "text/html"); });
         srv.Get("/styles.css", [](auto&, auto& r) { r.set_content(LoadFile("styles.css"), "text/css"); });
-        for (auto js : {"clipboard", "input", "media", "network", "renderer", "state", "ui"}) srv.Get(std::string("/js/") + js + ".js", [js](auto&, auto& r) { r.set_content(LoadFile((std::string("js/") + js + ".js").c_str()), "application/javascript"); });
+        for (auto js : {"input", "media", "network", "renderer", "state", "ui"}) srv.Get(std::string("/js/") + js + ".js", [js](auto&, auto& r) { r.set_content(LoadFile((std::string("js/") + js + ".js").c_str()), "application/javascript"); });
 
         srv.Post("/api/offer", [&rtc](const httplib::Request& req, httplib::Response& res) {
             try {

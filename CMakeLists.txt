@@ -28,7 +28,6 @@ set(HEADERS
     hpp/webrtc.hpp
     hpp/audio.hpp
     hpp/input.hpp
-    hpp/clipboard.hpp
 )
 
 set(SOURCES main.cpp)
@@ -36,7 +35,6 @@ set(SOURCES main.cpp)
 set(WEB_FILES index.html styles.css)
 
 set(JS_FILES
-    js/clipboard.js
     js/input.js
     js/media.js
     js/network.js
