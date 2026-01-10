@@ -1,145 +1,598 @@
+/**
+ * @file input.js
+ * @brief Mouse, keyboard, and touch input handling
+ * @copyright 2025-2026 Daniel Chrobak
+ */
+
 import { MSG, C, S, mkBuf } from './state.js';
 import { canvas, canvasW, canvasH, calcVp, renderZoomed } from './renderer.js';
 
-let absX = 0.5, absY = 0.5, tStartX = 0, tStartY = 0, tStartT = 0, tMoved = false, tDrag = false;
-let lastTX = 0, lastTY = 0, tId = null, lpTimer = null, tf2Start = 0, tf2Active = false;
-let pinch = false, pinchPending = false, pinchDist = 0, pinchScale = 1;
-let scroll = false, scrollPending = false, lastScrollX = 0, lastScrollY = 0, scrollAccX = 0, scrollAccY = 0;
-const SCROLL_THRESH = 8, SCROLL_SENS = 2.5, BMAP = { 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 };
+let absX = 0.5;
+let absY = 0.5;
+let tStartX = 0;
+let tStartY = 0;
+let tStartT = 0;
+let tMoved = false;
+let tDrag = false;
+let lastTX = 0;
+let lastTY = 0;
+let tId = null;
+let lpTimer = null;
+let tf2Start = 0;
+let tf2Active = false;
+let pinch = false;
+let pinchPending = false;
+let pinchDist = 0;
+let pinchScale = 1;
+let scroll = false;
+let scrollPending = false;
+let lastScrollX = 0;
+let lastScrollY = 0;
+let scrollAccX = 0;
+let scrollAccY = 0;
 
+const SCROLL_THRESH = 8;
+const SCROLL_SENS = 2.5;
+const BMAP = { 0: 0, 2: 1, 1: 2, 3: 3, 4: 4 };
+
+/**
+ * Sends an input message over the data channel.
+ * @param {string} type - Message type (move, btn, wheel, key)
+ * @param {...*} a - Message arguments
+ */
 const send = (type, ...a) => {
     if ((!S.controlEnabled && !S.touchEnabled) || S.dc?.readyState !== 'open') return;
-    const buf = { move: () => { S.stats.moves++; return mkBuf(12, v => { v.setUint32(0, MSG.MOUSE_MOVE, true); v.setFloat32(4, a[0], true); v.setFloat32(8, a[1], true); }); },
-        btn: () => { S.stats.clicks++; return mkBuf(6, v => { v.setUint32(0, MSG.MOUSE_BTN, true); v.setUint8(4, a[0]); v.setUint8(5, a[1] ? 1 : 0); }); },
-        wheel: () => mkBuf(8, v => { v.setUint32(0, MSG.MOUSE_WHEEL, true); v.setInt16(4, Math.round(a[0]), true); v.setInt16(6, Math.round(a[1]), true); }),
-        key: () => { S.stats.keys++; return mkBuf(10, v => { v.setUint32(0, MSG.KEY, true); v.setUint16(4, a[0], true); v.setUint16(6, a[1], true); v.setUint8(8, a[2] ? 1 : 0); v.setUint8(9, a[3]); }); }
+
+    const buf = {
+        move: () => {
+            S.stats.moves++;
+            return mkBuf(12, v => {
+                v.setUint32(0, MSG.MOUSE_MOVE, true);
+                v.setFloat32(4, a[0], true);
+                v.setFloat32(8, a[1], true);
+            });
+        },
+        btn: () => {
+            S.stats.clicks++;
+            return mkBuf(6, v => {
+                v.setUint32(0, MSG.MOUSE_BTN, true);
+                v.setUint8(4, a[0]);
+                v.setUint8(5, a[1] ? 1 : 0);
+            });
+        },
+        wheel: () => mkBuf(8, v => {
+            v.setUint32(0, MSG.MOUSE_WHEEL, true);
+            v.setInt16(4, Math.round(a[0]), true);
+            v.setInt16(6, Math.round(a[1]), true);
+        }),
+        key: () => {
+            S.stats.keys++;
+            return mkBuf(10, v => {
+                v.setUint32(0, MSG.KEY, true);
+                v.setUint16(4, a[0], true);
+                v.setUint16(6, a[1], true);
+                v.setUint8(8, a[2] ? 1 : 0);
+                v.setUint8(9, a[3]);
+            });
+        }
     }[type]();
-    try { S.dc.send(buf); } catch {}
+
+    try {
+        S.dc.send(buf);
+    } catch {}
 };
 
+/**
+ * Converts screen coordinates to normalized viewport coordinates.
+ * @param {number} cx - Client X coordinate
+ * @param {number} cy - Client Y coordinate
+ * @returns {Object|null} Normalized coordinates or null if outside viewport
+ */
 const toNorm = (cx, cy) => {
     if (S.W <= 0 || S.H <= 0) return null;
-    const r = canvas.getBoundingClientRect(), dpr = devicePixelRatio || 1, vp = S.lastVp = calcVp(S.W, S.H, canvasW, canvasH), x = (cx - r.left) * dpr, y = (cy - r.top) * dpr;
-    return (x < vp.x || x > vp.x + vp.w || y < vp.y || y > vp.y + vp.h) ? null : { x: Math.max(0, Math.min(1, (x - vp.x) / vp.w)), y: Math.max(0, Math.min(1, (y - vp.y) / vp.h)) };
+
+    const r = canvas.getBoundingClientRect();
+    const dpr = devicePixelRatio || 1;
+    const vp = S.lastVp = calcVp(S.W, S.H, canvasW, canvasH);
+    const x = (cx - r.left) * dpr;
+    const y = (cy - r.top) * dpr;
+
+    if (x < vp.x || x > vp.x + vp.w || y < vp.y || y > vp.y + vp.h) {
+        return null;
+    }
+
+    return {
+        x: Math.max(0, Math.min(1, (x - vp.x) / vp.w)),
+        y: Math.max(0, Math.min(1, (y - vp.y) / vp.h))
+    };
 };
 
-const reqLock = () => (canvas.requestPointerLock || canvas.mozRequestPointerLock || canvas.webkitRequestPointerLock)?.call(canvas);
-const exitLock = () => (document.exitPointerLock || document.mozExitPointerLock || document.webkitExitPointerLock)?.call(document);
+/**
+ * Requests pointer lock on the canvas.
+ */
+const reqLock = () => {
+    (canvas.requestPointerLock ||
+     canvas.mozRequestPointerLock ||
+     canvas.webkitRequestPointerLock)?.call(canvas);
+};
+
+/**
+ * Exits pointer lock mode.
+ */
+const exitLock = () => {
+    (document.exitPointerLock ||
+     document.mozExitPointerLock ||
+     document.webkitExitPointerLock)?.call(document);
+};
 
 document.addEventListener('pointerlockchange', () => {
-    S.pointerLocked = !!(document.pointerLockElement || document.mozPointerLockElement || document.webkitPointerLockElement);
+    S.pointerLocked = !!(
+        document.pointerLockElement ||
+        document.mozPointerLockElement ||
+        document.webkitPointerLockElement
+    );
     console.info('Pointer lock:', S.pointerLocked ? 'active' : 'inactive');
-    S.pointerLocked && (absX = absY = 0.5);
+    if (S.pointerLocked) {
+        absX = absY = 0.5;
+    }
 });
 
-const getMods = e => (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
-const getSens = () => ({ x: 0.001, y: S.W > 0 && S.H > 0 ? 0.001 * S.W / S.H : 0.001 });
-
-const H = {
-    move: e => { if (!S.controlEnabled && !S.touchEnabled) return;
-        if (S.pointerLocked) { const s = getSens(); absX = Math.max(0, Math.min(1, absX + e.movementX * s.x)); absY = Math.max(0, Math.min(1, absY + e.movementY * s.y)); send('move', absX, absY); }
-        else { const p = toNorm(e.clientX, e.clientY); p && send('move', p.x, p.y); } },
-    down: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('btn', BMAP[e.button] ?? 0, true)); },
-    up: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('btn', BMAP[e.button] ?? 0, false)); },
-    wheel: e => { (S.controlEnabled || S.touchEnabled) && (e.preventDefault(), send('wheel', e.deltaX, e.deltaY)); },
-    ctx: e => S.controlEnabled && e.preventDefault(),
-    keyD: e => { if (!S.controlEnabled) return; if (e.key === 'Escape' && S.pointerLocked) return exitLock(); !e.metaKey && e.preventDefault(); send('key', e.keyCode, 0, true, getMods(e)); },
-    keyU: e => { if (!S.controlEnabled) return; !e.metaKey && e.preventDefault(); send('key', e.keyCode, 0, false, getMods(e)); }
+/**
+ * Gets modifier key flags from an event.
+ * @param {Event} e - Keyboard or mouse event
+ * @returns {number} Modifier flags bitmask
+ */
+const getMods = e => {
+    return (e.ctrlKey ? 1 : 0) |
+           (e.altKey ? 2 : 0) |
+           (e.shiftKey ? 4 : 0) |
+           (e.metaKey ? 8 : 0);
 };
 
+/**
+ * Gets mouse sensitivity values.
+ * @returns {Object} X and Y sensitivity values
+ */
+const getSens = () => ({
+    x: 0.001,
+    y: S.W > 0 && S.H > 0 ? 0.001 * S.W / S.H : 0.001
+});
+
+const H = {
+    move: e => {
+        if (!S.controlEnabled && !S.touchEnabled) return;
+
+        if (S.pointerLocked) {
+            const s = getSens();
+            absX = Math.max(0, Math.min(1, absX + e.movementX * s.x));
+            absY = Math.max(0, Math.min(1, absY + e.movementY * s.y));
+            send('move', absX, absY);
+        } else {
+            const p = toNorm(e.clientX, e.clientY);
+            if (p) send('move', p.x, p.y);
+        }
+    },
+
+    down: e => {
+        if (S.controlEnabled || S.touchEnabled) {
+            e.preventDefault();
+            send('btn', BMAP[e.button] ?? 0, true);
+        }
+    },
+
+    up: e => {
+        if (S.controlEnabled || S.touchEnabled) {
+            e.preventDefault();
+            send('btn', BMAP[e.button] ?? 0, false);
+        }
+    },
+
+    wheel: e => {
+        if (S.controlEnabled || S.touchEnabled) {
+            e.preventDefault();
+            send('wheel', e.deltaX, e.deltaY);
+        }
+    },
+
+    ctx: e => {
+        if (S.controlEnabled) e.preventDefault();
+    },
+
+    keyD: e => {
+        if (!S.controlEnabled) return;
+        if (e.key === 'Escape' && S.pointerLocked) return exitLock();
+        if (!e.metaKey) e.preventDefault();
+        send('key', e.keyCode, 0, true, getMods(e));
+    },
+
+    keyU: e => {
+        if (!S.controlEnabled) return;
+        if (!e.metaKey) e.preventDefault();
+        send('key', e.keyCode, 0, false, getMods(e));
+    }
+};
+
+/**
+ * Enables mouse and keyboard control.
+ */
 export const enableControl = () => {
-    if (S.controlEnabled) return; S.controlEnabled = true; console.info('Control enabled');
-    canvas.addEventListener('mousemove', H.move); canvas.addEventListener('mousedown', H.down); canvas.addEventListener('mouseup', H.up);
-    canvas.addEventListener('contextmenu', H.ctx); canvas.addEventListener('wheel', H.wheel, { passive: false });
-    document.addEventListener('keydown', H.keyD); document.addEventListener('keyup', H.keyU);
+    if (S.controlEnabled) return;
+    S.controlEnabled = true;
+    console.info('Control enabled');
+
+    canvas.addEventListener('mousemove', H.move);
+    canvas.addEventListener('mousedown', H.down);
+    canvas.addEventListener('mouseup', H.up);
+    canvas.addEventListener('contextmenu', H.ctx);
+    canvas.addEventListener('wheel', H.wheel, { passive: false });
+    document.addEventListener('keydown', H.keyD);
+    document.addEventListener('keyup', H.keyU);
     canvas.style.cursor = 'none';
 };
 
+/**
+ * Disables mouse and keyboard control.
+ */
 export const disableControl = () => {
-    if (!S.controlEnabled) return; S.controlEnabled = false; console.info('Control disabled');
-    S.pointerLocked && exitLock();
-    canvas.removeEventListener('mousemove', H.move); canvas.removeEventListener('mousedown', H.down); canvas.removeEventListener('mouseup', H.up);
-    canvas.removeEventListener('contextmenu', H.ctx); canvas.removeEventListener('wheel', H.wheel);
-    document.removeEventListener('keydown', H.keyD); document.removeEventListener('keyup', H.keyU);
+    if (!S.controlEnabled) return;
+    S.controlEnabled = false;
+    console.info('Control disabled');
+
+    if (S.pointerLocked) exitLock();
+
+    canvas.removeEventListener('mousemove', H.move);
+    canvas.removeEventListener('mousedown', H.down);
+    canvas.removeEventListener('mouseup', H.up);
+    canvas.removeEventListener('contextmenu', H.ctx);
+    canvas.removeEventListener('wheel', H.wheel);
+    document.removeEventListener('keydown', H.keyD);
+    document.removeEventListener('keyup', H.keyU);
     canvas.style.cursor = 'default';
 };
 
+/**
+ * Calculates distance between two touch points.
+ * @param {Touch} t1 - First touch
+ * @param {Touch} t2 - Second touch
+ * @returns {number} Distance in pixels
+ */
 const dist2 = (t1, t2) => Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
-const clearLp = () => lpTimer && (clearTimeout(lpTimer), lpTimer = null);
 
-const updateZoom = () => { if (S.zoom <= 1) return S.zoomX = S.zoomY = 0;
-    const vf = 1 / S.zoom, mo = 1 - vf;
+/**
+ * Clears the long-press timer.
+ */
+const clearLp = () => {
+    if (lpTimer) {
+        clearTimeout(lpTimer);
+        lpTimer = null;
+    }
+};
+
+/**
+ * Updates zoom position based on touch coordinates.
+ */
+const updateZoom = () => {
+    if (S.zoom <= 1) {
+        S.zoomX = S.zoomY = 0;
+        return;
+    }
+
+    const vf = 1 / S.zoom;
+    const mo = 1 - vf;
     S.zoomX = S.zoomX * 0.7 + Math.max(0, Math.min(mo, S.touchX - vf / 2)) * 0.3;
     S.zoomY = S.zoomY * 0.7 + Math.max(0, Math.min(mo, S.touchY - vf / 2)) * 0.3;
 };
 
+/**
+ * Handles touch start events.
+ * @param {TouchEvent} e - Touch event
+ */
 const tStart = e => {
     if (!S.touchEnabled) return;
     const ts = e.touches;
+
     if (ts.length === 2) {
-        tf2Start = tf2Start || Math.min(performance.now(), tStartT || performance.now()); tf2Active = true; clearLp(); tMoved = true;
-        if (S.touchMode === 'trackpad') { pinchPending = scrollPending = true; pinchDist = dist2(ts[0], ts[1]); pinchScale = S.zoom;
-            lastScrollX = (ts[0].clientX + ts[1].clientX) / 2; lastScrollY = (ts[0].clientY + ts[1].clientY) / 2; scrollAccX = scrollAccY = 0; tId = null; tDrag = false; }
-        e.preventDefault(); return;
+        tf2Start = tf2Start || Math.min(performance.now(), tStartT || performance.now());
+        tf2Active = true;
+        clearLp();
+        tMoved = true;
+
+        if (S.touchMode === 'trackpad') {
+            pinchPending = scrollPending = true;
+            pinchDist = dist2(ts[0], ts[1]);
+            pinchScale = S.zoom;
+            lastScrollX = (ts[0].clientX + ts[1].clientX) / 2;
+            lastScrollY = (ts[0].clientY + ts[1].clientY) / 2;
+            scrollAccX = scrollAccY = 0;
+            tId = null;
+            tDrag = false;
+        }
+        e.preventDefault();
+        return;
     }
+
     if (tId !== null) return;
-    const t = ts[0]; tId = t.identifier; tStartX = lastTX = t.clientX; tStartY = lastTY = t.clientY; tStartT = performance.now(); tMoved = tDrag = false; clearLp();
-    lpTimer = setTimeout(() => { if (!tMoved && tId !== null) { tDrag = true; send('btn', 0, true); console.info('Long press drag'); } lpTimer = null; }, C.LONG_MS);
-    if (S.touchMode === 'direct') { const p = toNorm(t.clientX, t.clientY); if (p) { S.touchX = p.x; S.touchY = p.y; send('move', p.x, p.y); } }
+
+    const t = ts[0];
+    tId = t.identifier;
+    tStartX = lastTX = t.clientX;
+    tStartY = lastTY = t.clientY;
+    tStartT = performance.now();
+    tMoved = tDrag = false;
+    clearLp();
+
+    lpTimer = setTimeout(() => {
+        if (!tMoved && tId !== null) {
+            tDrag = true;
+            send('btn', 0, true);
+            console.info('Long press drag');
+        }
+        lpTimer = null;
+    }, C.LONG_MS);
+
+    if (S.touchMode === 'direct') {
+        const p = toNorm(t.clientX, t.clientY);
+        if (p) {
+            S.touchX = p.x;
+            S.touchY = p.y;
+            send('move', p.x, p.y);
+        }
+    }
+
     e.preventDefault();
 };
 
+/**
+ * Handles touch move events.
+ * @param {TouchEvent} e - Touch event
+ */
 const tMove = e => {
     if (!S.touchEnabled) return;
     const ts = e.touches;
+
     if (ts.length === 2 && S.touchMode === 'trackpad') {
         if (!pinchPending && !pinch && !scrollPending && !scroll) return;
-        const nd = dist2(ts[0], ts[1]), dd = Math.abs(nd - pinchDist);
-        const cx = (ts[0].clientX + ts[1].clientX) / 2, cy = (ts[0].clientY + ts[1].clientY) / 2, sdx = cx - lastScrollX, sdy = cy - lastScrollY;
-        if (!pinch && !scroll) { if (dd > 15) { pinch = true; scrollPending = false; console.info('Pinch started'); } else if (Math.abs(sdx) > SCROLL_THRESH || Math.abs(sdy) > SCROLL_THRESH) { scroll = true; pinchPending = false; console.info('Two-finger scroll started'); } }
-        if (pinch) { const ns = Math.max(C.MIN_ZOOM, Math.min(C.MAX_ZOOM, pinchScale + (nd - pinchDist) * C.PINCH_SENS)); if (Math.abs(ns - S.zoom) > 0.01) { S.zoom = ns; ns > 1 ? updateZoom() : (S.zoomX = S.zoomY = 0); renderZoomed(); updateTouchUI(); } }
-        if (scroll) { scrollAccX += sdx; scrollAccY += sdy; let sx = 0, sy = 0; if (Math.abs(scrollAccX) >= 1) { sx = scrollAccX * SCROLL_SENS; scrollAccX = 0; } if (Math.abs(scrollAccY) >= 1) { sy = -scrollAccY * SCROLL_SENS; scrollAccY = 0; } (sx || sy) && send('wheel', sx, sy); lastScrollX = cx; lastScrollY = cy; }
-        e.preventDefault(); return;
+
+        const nd = dist2(ts[0], ts[1]);
+        const dd = Math.abs(nd - pinchDist);
+        const cx = (ts[0].clientX + ts[1].clientX) / 2;
+        const cy = (ts[0].clientY + ts[1].clientY) / 2;
+        const sdx = cx - lastScrollX;
+        const sdy = cy - lastScrollY;
+
+        if (!pinch && !scroll) {
+            if (dd > 15) {
+                pinch = true;
+                scrollPending = false;
+                console.info('Pinch started');
+            } else if (Math.abs(sdx) > SCROLL_THRESH || Math.abs(sdy) > SCROLL_THRESH) {
+                scroll = true;
+                pinchPending = false;
+                console.info('Two-finger scroll started');
+            }
+        }
+
+        if (pinch) {
+            const ns = Math.max(C.MIN_ZOOM, Math.min(C.MAX_ZOOM, pinchScale + (nd - pinchDist) * C.PINCH_SENS));
+            if (Math.abs(ns - S.zoom) > 0.01) {
+                S.zoom = ns;
+                if (ns > 1) {
+                    updateZoom();
+                } else {
+                    S.zoomX = S.zoomY = 0;
+                }
+                renderZoomed();
+                updateTouchUI();
+            }
+        }
+
+        if (scroll) {
+            scrollAccX += sdx;
+            scrollAccY += sdy;
+            let sx = 0;
+            let sy = 0;
+
+            if (Math.abs(scrollAccX) >= 1) {
+                sx = scrollAccX * SCROLL_SENS;
+                scrollAccX = 0;
+            }
+
+            if (Math.abs(scrollAccY) >= 1) {
+                sy = -scrollAccY * SCROLL_SENS;
+                scrollAccY = 0;
+            }
+
+            if (sx || sy) send('wheel', sx, sy);
+            lastScrollX = cx;
+            lastScrollY = cy;
+        }
+
+        e.preventDefault();
+        return;
     }
+
     if (pinch || scroll || tId === null) return;
-    const t = [...ts].find(x => x.identifier === tId); if (!t) return;
-    const dx = t.clientX - lastTX, dy = t.clientY - lastTY;
-    if (Math.abs(t.clientX - tStartX) > C.TAP_THRESH || Math.abs(t.clientY - tStartY) > C.TAP_THRESH) { clearLp(); tMoved = true; }
-    if (S.touchMode === 'trackpad') { const r = canvas.getBoundingClientRect(); S.touchX = Math.max(0, Math.min(1, S.touchX + dx * C.TOUCH_SENS / r.width)); S.touchY = Math.max(0, Math.min(1, S.touchY + dy * C.TOUCH_SENS / r.height)); send('move', S.touchX, S.touchY); if (S.zoom > 1) { updateZoom(); renderZoomed(); updateTouchUI(); } }
-    else { const p = toNorm(t.clientX, t.clientY); if (p) { S.touchX = p.x; S.touchY = p.y; send('move', p.x, p.y); } }
-    lastTX = t.clientX; lastTY = t.clientY; e.preventDefault();
+
+    const t = [...ts].find(x => x.identifier === tId);
+    if (!t) return;
+
+    const dx = t.clientX - lastTX;
+    const dy = t.clientY - lastTY;
+
+    if (Math.abs(t.clientX - tStartX) > C.TAP_THRESH || Math.abs(t.clientY - tStartY) > C.TAP_THRESH) {
+        clearLp();
+        tMoved = true;
+    }
+
+    if (S.touchMode === 'trackpad') {
+        const r = canvas.getBoundingClientRect();
+        S.touchX = Math.max(0, Math.min(1, S.touchX + dx * C.TOUCH_SENS / r.width));
+        S.touchY = Math.max(0, Math.min(1, S.touchY + dy * C.TOUCH_SENS / r.height));
+        send('move', S.touchX, S.touchY);
+
+        if (S.zoom > 1) {
+            updateZoom();
+            renderZoomed();
+            updateTouchUI();
+        }
+    } else {
+        const p = toNorm(t.clientX, t.clientY);
+        if (p) {
+            S.touchX = p.x;
+            S.touchY = p.y;
+            send('move', p.x, p.y);
+        }
+    }
+
+    lastTX = t.clientX;
+    lastTY = t.clientY;
+    e.preventDefault();
 };
 
+/**
+ * Handles touch end events.
+ * @param {TouchEvent} e - Touch event
+ */
 const tEnd = e => {
     if (!S.touchEnabled) return;
-    const ts = e.touches, ct = [...e.changedTouches];
+    const ts = e.touches;
+    const ct = [...e.changedTouches];
+
     if (pinch || pinchPending || scroll || scrollPending) {
-        if (ts.length < 2) { pinchPending = scrollPending = false;
-            if (pinch) { pinch = tf2Active = false; tf2Start = 0; console.info(`Pinch ended: ${S.zoom.toFixed(2)}x`); if (S.zoom < 1.05) { S.zoom = 1; S.zoomX = S.zoomY = 0; renderZoomed(); } updateTouchUI(); }
-            if (scroll) { scroll = tf2Active = false; tf2Start = 0; scrollAccX = scrollAccY = 0; console.info('Two-finger scroll ended'); } } }
-    if (tf2Active && ts.length === 0 && !pinch && !scroll) { if (performance.now() - tf2Start < C.TAP_MS * 1.5) { send('btn', 1, true); setTimeout(() => send('btn', 1, false), 50); console.info('Two-finger tap (right click)'); } tf2Start = 0; tf2Active = false; }
-    else if (ts.length === 0) { tf2Start = 0; tf2Active = false; }
+        if (ts.length < 2) {
+            pinchPending = scrollPending = false;
+
+            if (pinch) {
+                pinch = tf2Active = false;
+                tf2Start = 0;
+                console.info(`Pinch ended: ${S.zoom.toFixed(2)}x`);
+
+                if (S.zoom < 1.05) {
+                    S.zoom = 1;
+                    S.zoomX = S.zoomY = 0;
+                    renderZoomed();
+                }
+                updateTouchUI();
+            }
+
+            if (scroll) {
+                scroll = tf2Active = false;
+                tf2Start = 0;
+                scrollAccX = scrollAccY = 0;
+                console.info('Two-finger scroll ended');
+            }
+        }
+    }
+
+    if (tf2Active && ts.length === 0 && !pinch && !scroll) {
+        if (performance.now() - tf2Start < C.TAP_MS * 1.5) {
+            send('btn', 1, true);
+            setTimeout(() => send('btn', 1, false), 50);
+            console.info('Two-finger tap (right click)');
+        }
+        tf2Start = 0;
+        tf2Active = false;
+    } else if (ts.length === 0) {
+        tf2Start = 0;
+        tf2Active = false;
+    }
+
     if (!ct.some(t => t.identifier === tId)) return;
+
     clearLp();
-    if (!tMoved && !tf2Active && performance.now() - tStartT < C.TAP_MS) { send('btn', 0, true); setTimeout(() => send('btn', 0, false), 50); console.info('Tap'); }
-    else if (tDrag) { send('btn', 0, false); console.info('Drag ended'); }
-    tId = null; tDrag = false; e.preventDefault();
+
+    if (!tMoved && !tf2Active && performance.now() - tStartT < C.TAP_MS) {
+        send('btn', 0, true);
+        setTimeout(() => send('btn', 0, false), 50);
+        console.info('Tap');
+    } else if (tDrag) {
+        send('btn', 0, false);
+        console.info('Drag ended');
+    }
+
+    tId = null;
+    tDrag = false;
+    e.preventDefault();
 };
 
-const tCancel = () => { clearLp(); tDrag && (send('btn', 0, false), console.info('Touch cancelled')); tId = null; tDrag = pinch = pinchPending = tf2Active = scroll = scrollPending = false; tf2Start = scrollAccX = scrollAccY = 0; };
+/**
+ * Handles touch cancel events.
+ */
+const tCancel = () => {
+    clearLp();
+    if (tDrag) {
+        send('btn', 0, false);
+        console.info('Touch cancelled');
+    }
+    tId = null;
+    tDrag = pinch = pinchPending = tf2Active = scroll = scrollPending = false;
+    tf2Start = scrollAccX = scrollAccY = 0;
+};
 
+/**
+ * Enables touch input handling.
+ */
 export const enableTouch = () => {
-    if (S.touchEnabled) return; S.touchEnabled = true; S.touchX = S.touchY = 0.5; S.zoom = 1; S.zoomX = S.zoomY = 0;
+    if (S.touchEnabled) return;
+    S.touchEnabled = true;
+    S.touchX = S.touchY = 0.5;
+    S.zoom = 1;
+    S.zoomX = S.zoomY = 0;
     console.info(`Touch enabled (${S.touchMode})`);
-    canvas.addEventListener('touchstart', tStart, { passive: false }); canvas.addEventListener('touchmove', tMove, { passive: false });
-    canvas.addEventListener('touchend', tEnd, { passive: false }); canvas.addEventListener('touchcancel', tCancel);
+
+    canvas.addEventListener('touchstart', tStart, { passive: false });
+    canvas.addEventListener('touchmove', tMove, { passive: false });
+    canvas.addEventListener('touchend', tEnd, { passive: false });
+    canvas.addEventListener('touchcancel', tCancel);
     updateTouchUI();
 };
 
-export const setTouchMode = m => { if (m !== 'trackpad' && m !== 'direct') return; S.touchMode = m; console.info(`Touch mode: ${m}`); if (m !== 'trackpad') { S.zoom = 1; S.zoomX = S.zoomY = 0; renderZoomed(); } updateTouchUI(); };
-export const updateTouchUI = () => { const el = document.getElementById('tStT'); el && (el.textContent = S.touchMode === 'trackpad' ? (S.zoom > 1 ? `${S.zoom.toFixed(1)}x zoom` : 'Trackpad mode') : 'Direct mode'); };
+/**
+ * Sets the touch input mode.
+ * @param {string} m - Mode ('trackpad' or 'direct')
+ */
+export const setTouchMode = m => {
+    if (m !== 'trackpad' && m !== 'direct') return;
+    S.touchMode = m;
+    console.info(`Touch mode: ${m}`);
+
+    if (m !== 'trackpad') {
+        S.zoom = 1;
+        S.zoomX = S.zoomY = 0;
+        renderZoomed();
+    }
+    updateTouchUI();
+};
+
+/**
+ * Updates the touch mode UI indicator.
+ */
+export const updateTouchUI = () => {
+    const el = document.getElementById('tStT');
+    if (el) {
+        el.textContent = S.touchMode === 'trackpad'
+            ? (S.zoom > 1 ? `${S.zoom.toFixed(1)}x zoom` : 'Trackpad mode')
+            : 'Direct mode';
+    }
+};
+
+/**
+ * Checks if the device supports touch input.
+ * @returns {boolean} True if touch is supported
+ */
 export const isTouchDev = () => 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+
+/**
+ * Checks if the device has a fine pointer (desktop).
+ * @returns {boolean} True if fine pointer is available
+ */
 export const isDesktop = () => window.matchMedia('(pointer: fine)').matches;
 
-canvas.addEventListener('click', () => { if (isDesktop()) { if (!S.controlEnabled) enableControl(); if (S.controlEnabled && !S.pointerLocked) reqLock(); } });
-isTouchDev() && enableTouch();
+canvas.addEventListener('click', () => {
+    if (isDesktop()) {
+        if (!S.controlEnabled) enableControl();
+        if (S.controlEnabled && !S.pointerLocked) reqLock();
+    }
+});
+
+if (isTouchDev()) enableTouch();
