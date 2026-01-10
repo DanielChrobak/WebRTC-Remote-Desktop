@@ -68,6 +68,11 @@ const toNorm = (cx, cy) => {
 
 const getMods = e => (e.ctrlKey ? 1 : 0) | (e.altKey ? 2 : 0) | (e.shiftKey ? 4 : 0) | (e.metaKey ? 8 : 0);
 
+const isInputFocused = () => {
+    const el = document.activeElement;
+    return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
+};
+
 const clearEscapeTimer = () => {
     clearTimeout(escapeHoldTimer);
     clearInterval(escapeProgressInterval);
@@ -108,8 +113,8 @@ const H = {
     up: e => { if (S.controlEnabled || S.touchEnabled) { e.preventDefault(); send('btn', BMAP[e.button] ?? 0, false); } },
     wheel: e => { if (S.controlEnabled || S.touchEnabled) { e.preventDefault(); send('wheel', e.deltaX, e.deltaY); } },
     ctx: e => { if (S.controlEnabled) e.preventDefault(); },
-    keyD: e => { if (!S.controlEnabled) return; if (e.key === 'Escape' && handleEscapeKey(e, true)) return; if (!e.metaKey) e.preventDefault(); send('key', e.keyCode, 0, true, getMods(e)); },
-    keyU: e => { if (!S.controlEnabled) return; if (e.key === 'Escape' && handleEscapeKey(e, false)) return; if (!e.metaKey) e.preventDefault(); send('key', e.keyCode, 0, false, getMods(e)); }
+    keyD: e => { if (!S.controlEnabled || isInputFocused()) return; if (e.key === 'Escape' && handleEscapeKey(e, true)) return; if (!e.metaKey) e.preventDefault(); send('key', e.keyCode, 0, true, getMods(e)); },
+    keyU: e => { if (!S.controlEnabled || isInputFocused()) return; if (e.key === 'Escape' && handleEscapeKey(e, false)) return; if (!e.metaKey) e.preventDefault(); send('key', e.keyCode, 0, false, getMods(e)); }
 };
 
 export const enableControl = () => {
