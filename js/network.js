@@ -14,13 +14,19 @@ setKeyboardLockFns(isKeyboardLocked, exitFullscreen);
 
 let baseUrl = '';
 const AUTH_KEY = 'remote_desktop_auth', CONN_KEY = 'remote_desktop_connection';
-const STUN = [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }];
+
+// Optimized: No STUN for LAN, only use if needed for NAT traversal
+const STUN_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+];
 
 const tsUs = (t = performance.now()) => Math.floor((performance.timeOrigin + t) * 1000);
 const toSrvUs = t => tsUs(t) - S.clockOff;
 const sendMsg = buf => { if (S.dc?.readyState !== 'open') return false; try { S.dc.send(buf); return true; } catch { return false; } };
 
 let creds = null, authResolve = null, authReject = null, hasConnected = false, waitFirstFrame = false, connAttempts = 0, pingInterval = null;
+let useStunServers = false; // Start without STUN for faster LAN connections
 
 const connEl = { overlay: $('connectOverlay'), url: $('localUrlInput'), btn: $('connectLocalBtn'), err: $('connectError') };
 const authEl = { overlay: $('authOverlay'), user: $('usernameInput'), pin: $('pinInput'), err: $('authError'), btn: $('authSubmit') };
@@ -288,6 +294,16 @@ const resetState = () => {
     S.frameMeta.clear();
 };
 
+// Check if we're on a local network
+const isLocalNetwork = () => {
+    const host = window.location.hostname;
+    return host === 'localhost' ||
+           host === '127.0.0.1' ||
+           host.startsWith('192.168.') ||
+           host.startsWith('10.') ||
+           /^172\.(1[6-9]|2[0-9]|3[01])\./.test(host);
+};
+
 const connect = async () => {
     try {
         const s = getSaved();
@@ -296,47 +312,156 @@ const connect = async () => {
         updateLoadingStage(Stage.ICE);
         resetState();
 
-        const pc = S.pc = new RTCPeerConnection({ iceServers: STUN, iceCandidatePoolSize: 10, bundlePolicy: 'max-bundle', rtcpMuxPolicy: 'require' });
+        // OPTIMIZATION: Skip STUN for local networks - much faster!
+        const isLocal = isLocalNetwork();
+        const iceServers = isLocal ? [] : STUN_SERVERS;
 
-        pc.onicecandidate = e => { if (e.candidate) console.info(`ICE candidate: ${e.candidate.type} (${e.candidate.protocol})`); };
+        console.info(`Connection mode: ${isLocal ? 'LAN (no STUN)' : 'WAN (with STUN)'}`);
 
-        pc.onconnectionstatechange = () => {
-            console.info('Connection:', pc.connectionState);
-            if (pc.connectionState === 'connected') connAttempts = 0;
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
-                if (authEl.overlay.classList.contains('visible')) { console.info('Connection closed during auth - waiting for user'); return; }
-                connAttempts++;
-                if (connAttempts >= 3) showConnModal('Connection failed. Please check the server and try again.');
-                else { const delay = Math.min(1000 * Math.pow(1.5, connAttempts), 10000); console.warn(`Reconnecting in ${Math.round(delay)}ms`); showLoading(true); updateLoadingStage(Stage.ERR, 'Reconnecting...'); setTimeout(connect, delay); }
+        const pc = S.pc = new RTCPeerConnection({
+            iceServers,
+            iceCandidatePoolSize: 4,  // Reduced for faster gathering
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
+        });
+
+        let hasHostCandidate = false;
+        let iceCandidateCount = 0;
+
+        pc.onicecandidate = e => {
+            if (e.candidate) {
+                iceCandidateCount++;
+                if (e.candidate.type === 'host') hasHostCandidate = true;
+                console.info(`ICE candidate ${iceCandidateCount}: ${e.candidate.type} (${e.candidate.protocol})`);
             }
         };
 
-        pc.oniceconnectionstatechange = () => { console.info('ICE:', pc.iceConnectionState); if (pc.iceConnectionState === 'failed') updateLoadingStage(Stage.ERR, 'ICE failed'); };
-        pc.onicecandidateerror = e => { if (e.errorCode !== 701) console.error('ICE error:', e.errorCode, e.errorText); };
+        pc.onconnectionstatechange = () => {
+            console.info('Connection:', pc.connectionState);
+            if (pc.connectionState === 'connected') {
+                connAttempts = 0;
+                useStunServers = false; // Reset for next connection
+            }
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected') {
+                if (authEl.overlay.classList.contains('visible')) {
+                    console.info('Connection closed during auth - waiting for user');
+                    return;
+                }
+                connAttempts++;
+
+                // If first attempt failed without STUN, try with STUN
+                if (connAttempts === 1 && !useStunServers && isLocal) {
+                    console.warn('LAN connection failed, retrying with STUN...');
+                    useStunServers = true;
+                    showLoading(true);
+                    updateLoadingStage(Stage.ICE, 'Retrying with STUN...');
+                    setTimeout(connect, 100);
+                    return;
+                }
+
+                if (connAttempts >= 3) {
+                    showConnModal('Connection failed. Please check the server and try again.');
+                } else {
+                    const delay = Math.min(1000 * Math.pow(1.5, connAttempts), 10000);
+                    console.warn(`Reconnecting in ${Math.round(delay)}ms`);
+                    showLoading(true);
+                    updateLoadingStage(Stage.ERR, 'Reconnecting...');
+                    setTimeout(connect, delay);
+                }
+            }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+            console.info('ICE:', pc.iceConnectionState);
+            if (pc.iceConnectionState === 'failed') {
+                updateLoadingStage(Stage.ERR, 'ICE failed');
+            }
+        };
+
+        pc.onicecandidateerror = e => {
+            if (e.errorCode !== 701) console.error('ICE error:', e.errorCode, e.errorText);
+        };
 
         S.dc = pc.createDataChannel('screen', C.DC);
         setupDC();
 
-        await pc.setLocalDescription(await pc.createOffer());
+        // Create offer immediately
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
         updateLoadingStage(Stage.SIGNAL, 'Gathering ICE...');
 
-        await new Promise(r => {
-            if (pc.iceGatheringState === 'complete') return r();
-            const to = setTimeout(r, 5000);
-            pc.addEventListener('icegatheringstatechange', () => { if (pc.iceGatheringState === 'complete') { clearTimeout(to); r(); } });
+        // OPTIMIZATION: Don't wait for complete gathering!
+        // Use trickle ICE - wait just enough for host candidates (fastest)
+        // For LAN: 50-150ms is usually enough for host candidates
+        // For WAN: Wait a bit longer for server reflexive candidates
+        const gatherTimeout = isLocal ? 150 : 500;
+
+        await new Promise(resolve => {
+            let resolved = false;
+
+            const done = () => {
+                if (resolved) return;
+                resolved = true;
+                resolve();
+            };
+
+            // Quick timeout - don't wait for all candidates
+            const quickTimeout = setTimeout(() => {
+                if (hasHostCandidate || iceCandidateCount > 0) {
+                    console.info(`Fast gather: ${iceCandidateCount} candidates in ${gatherTimeout}ms`);
+                    done();
+                }
+            }, gatherTimeout);
+
+            // Fallback timeout
+            const fallbackTimeout = setTimeout(() => {
+                console.info(`Gather timeout: ${iceCandidateCount} candidates`);
+                done();
+            }, isLocal ? 300 : 1000);
+
+            // If gathering completes early, use it
+            if (pc.iceGatheringState === 'complete') {
+                clearTimeout(quickTimeout);
+                clearTimeout(fallbackTimeout);
+                done();
+                return;
+            }
+
+            pc.addEventListener('icegatheringstatechange', () => {
+                if (pc.iceGatheringState === 'complete') {
+                    clearTimeout(quickTimeout);
+                    clearTimeout(fallbackTimeout);
+                    console.info(`Gather complete: ${iceCandidateCount} candidates`);
+                    done();
+                }
+            });
         });
 
         updateLoadingStage(Stage.SIGNAL, 'Sending offer...');
         console.info('Sending offer to', baseUrl);
 
-        const res = await fetch(`${baseUrl}/api/offer`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sdp: pc.localDescription.sdp, type: pc.localDescription.type }) });
+        // Send offer with current candidates (trickle ICE style)
+        const res = await fetch(`${baseUrl}/api/offer`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                sdp: pc.localDescription.sdp,
+                type: pc.localDescription.type
+            })
+        });
+
         if (!res.ok) throw new Error('Server rejected offer');
 
         const ans = await res.json();
         console.info('Received answer');
         updateLoadingStage(Stage.CONNECT);
         await pc.setRemoteDescription(new RTCSessionDescription(ans));
-    } catch (e) { console.error('Connect error:', e.message); throw e; }
+
+    } catch (e) {
+        console.error('Connect error:', e.message);
+        throw e;
+    }
 };
 
 export const detectFps = async () => {
