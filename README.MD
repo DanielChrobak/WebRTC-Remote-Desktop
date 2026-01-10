@@ -1,10 +1,10 @@
-# WebRTC Remote Desktop
+# SlipStream
 
 A high-performance, low-latency remote desktop solution using WebRTC for real-time streaming with AV1 hardware encoding.
 
 ## Overview
 
-WebRTC Remote Desktop enables secure, low-latency screen sharing over local networks using modern web technologies. The server captures the host display using the Windows Graphics Capture API and encodes it with AV1 hardware acceleration (NVENC, QSV, or AMF). Clients connect via any modern web browser without plugins.
+SlipStream enables secure, low-latency screen sharing over local networks using modern web technologies. The server captures the host display using the Windows Graphics Capture API and encodes it with AV1 hardware acceleration (NVENC, QSV, or AMF). Clients connect via any modern web browser without plugins.
 
 ## Features
 
@@ -95,7 +95,7 @@ The build process will:
 2. Configure the project with CMake
 3. Build the Release executable
 
-Output: `build\bin\Release\WebRTCRemoteDesktop.exe`
+Output: `build\bin\Release\SlipStream.exe`
 
 ### 3. Run the Server
 

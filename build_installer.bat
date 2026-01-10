@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-REM WebRTC Remote Desktop - Installer Build Script
+REM SlipStream - Installer Build Script
 REM Copyright 2025-2026 Daniel Chrobak
 
 REM Find vcpkg installation
@@ -14,7 +14,7 @@ pause & exit /b 1
 
 :found
 echo ============================================
-echo     WebRTC Remote Desktop Installer Builder
+echo          SlipStream Installer Builder
 echo ============================================
 echo.
 
@@ -73,13 +73,13 @@ echo ============================================
 echo                    Done!
 echo ============================================
 echo.
-if exist build\WebRTCRemoteDesktop-1.0.0-win64.exe (
-    echo Installer: build\WebRTCRemoteDesktop-1.0.0-win64.exe
-) else if exist build\WebRTCRemoteDesktop-1.0.0-win64.zip (
-    echo Package:   build\WebRTCRemoteDesktop-1.0.0-win64.zip
+if exist build\SlipStream-1.0.0-win64.exe (
+    echo Installer: build\SlipStream-1.0.0-win64.exe
+) else if exist build\SlipStream-1.0.0-win64.zip (
+    echo Package:   build\SlipStream-1.0.0-win64.zip
 ) else (
     echo Package created in: build\
-    dir /b build\WebRTCRemoteDesktop-* 2>nul
+    dir /b build\SlipStream-* 2>nul
 )
 echo.
 pause

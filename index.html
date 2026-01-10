@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no,viewport-fit=cover">
-  <title>WebRTC Remote Desktop</title>
+  <title>SlipStream</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -91,11 +91,19 @@
       <button class="px" id="pnlX">&times;</button>
     </div>
     <div class="pc">
-      <div class="sec fss">
-        <button class="btn" id="fs">
-          <svg id="fsi" viewBox="0 0 24 24"><path id="fsp"/></svg>
-          <span id="fst">Fullscreen</span>
-        </button>
+      <div class="sec">
+        <div class="btn-row">
+          <button class="btn" id="disconnectBtn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/>
+            </svg>
+            <span>Disconnect</span>
+          </button>
+          <button class="btn fss-btn" id="fs">
+            <svg id="fsi" viewBox="0 0 24 24"><path id="fsp"/></svg>
+            <span id="fst">Fullscreen</span>
+          </button>
+        </div>
       </div>
       <div class="sec">
         <div class="sl">Audio</div>
@@ -146,15 +154,6 @@
             <option value="60">60 FPS</option>
           </select>
         </div>
-      </div>
-      <div class="sec">
-        <div class="sl">Connection</div>
-        <button class="btn" id="disconnectBtn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10"/>
-          </svg>
-          <span>Disconnect</span>
-        </button>
       </div>
       <div class="sec">
         <div class="sl">Debug</div>

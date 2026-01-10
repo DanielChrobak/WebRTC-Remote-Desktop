@@ -1,7 +1,7 @@
 @echo off
 setlocal
 
-REM WebRTC Remote Desktop - Build Script
+REM SlipStream - Build Script
 REM Copyright 2025-2026 Daniel Chrobak
 
 REM Find vcpkg installation
@@ -40,5 +40,5 @@ if errorlevel 1 (
 
 cd ..
 echo.
-echo Done: build\bin\Release\WebRTCRemoteDesktop.exe
+echo Done: build\bin\Release\SlipStream.exe
 pause

@@ -1,7 +1,7 @@
 {
-  "name": "webrtc-remote-desktop",
+  "name": "slipstream",
   "version": "1.0.0",
-  "description": "Low-latency WebRTC remote desktop with AV1 encoding",
+  "description": "Low-latency remote desktop streaming with AV1 encoding",
   "dependencies": [
     "libdatachannel",
     {

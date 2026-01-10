@@ -8,7 +8,7 @@ This license text (as modified) (c) 2026 Daniel Chrobak.
 PARAMETERS
 
 Licensor:               Daniel Chrobak ("Licensor")
-Licensed Work:          WebRTC Remote Desktop (the "Work")
+Licensed Work:          SlipStream (the "Work")
 Copyright:              (c) 2025-2026 Daniel Chrobak
 Additional Use Grant:   Personal Online Use is permitted as defined in Section 2
                         and Section 3

@@ -1,8 +1,8 @@
-# WebRTC Remote Desktop - CMake Build Configuration
+# SlipStream - CMake Build Configuration
 # Copyright 2025-2026 Daniel Chrobak
 
 cmake_minimum_required(VERSION 3.20)
-project(WebRTCRemoteDesktop LANGUAGES CXX)
+project(SlipStream LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -55,18 +55,18 @@ set(JS_FILES
 )
 
 # Executable Target
-add_executable(WebRTCRemoteDesktop ${SOURCES} ${HEADERS})
+add_executable(SlipStream ${SOURCES} ${HEADERS})
 
 # Enable OpenSSL support for cpp-httplib
-target_compile_definitions(WebRTCRemoteDesktop PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
+target_compile_definitions(SlipStream PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
-target_include_directories(WebRTCRemoteDesktop PRIVATE
+target_include_directories(SlipStream PRIVATE
     ${AVCODEC_INCLUDE_DIR}
     ${AVUTIL_INCLUDE_DIR}
     ${CMAKE_SOURCE_DIR}/hpp
 )
 
-target_link_libraries(WebRTCRemoteDesktop PRIVATE
+target_link_libraries(SlipStream PRIVATE
     LibDataChannel::LibDataChannel
     httplib::httplib
     nlohmann_json::nlohmann_json
@@ -79,7 +79,7 @@ target_link_libraries(WebRTCRemoteDesktop PRIVATE
 
 # Windows-specific Configuration
 if(WIN32)
-    target_link_libraries(WebRTCRemoteDesktop PRIVATE
+    target_link_libraries(SlipStream PRIVATE
         ws2_32
         d3d11
         dxgi
@@ -88,7 +88,7 @@ if(WIN32)
         windowsapp
     )
 
-    target_compile_options(WebRTCRemoteDesktop PRIVATE
+    target_compile_options(SlipStream PRIVATE
         /await:strict
         /EHsc
         /W4
@@ -96,54 +96,54 @@ if(WIN32)
         /wd4189
     )
 
-    target_compile_definitions(WebRTCRemoteDesktop PRIVATE
+    target_compile_definitions(SlipStream PRIVATE
         WINRT_LEAN_AND_MEAN
         _WIN32_WINNT=0x0A00
         _CRT_SECURE_NO_WARNINGS
     )
 
-    target_include_directories(WebRTCRemoteDesktop PRIVATE
+    target_include_directories(SlipStream PRIVATE
         "$ENV{WindowsSdkDir}Include/$ENV{WindowsSDKVersion}cppwinrt"
     )
 endif()
 
 # Output Directory
-set_target_properties(WebRTCRemoteDesktop PROPERTIES
+set_target_properties(SlipStream PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_BINARY_DIR}/bin/Debug
     RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR}/bin/Release
 )
 
 # Copy Web Files to Output Directory
 foreach(WEB_FILE ${WEB_FILES})
-    add_custom_command(TARGET WebRTCRemoteDesktop POST_BUILD
+    add_custom_command(TARGET SlipStream POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/${WEB_FILE}
-            $<TARGET_FILE_DIR:WebRTCRemoteDesktop>/${WEB_FILE}
+            $<TARGET_FILE_DIR:SlipStream>/${WEB_FILE}
     )
 endforeach()
 
-add_custom_command(TARGET WebRTCRemoteDesktop POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:WebRTCRemoteDesktop>/js
+add_custom_command(TARGET SlipStream POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_FILE_DIR:SlipStream>/js
 )
 
 foreach(JS_FILE ${JS_FILES})
-    add_custom_command(TARGET WebRTCRemoteDesktop POST_BUILD
+    add_custom_command(TARGET SlipStream POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/${JS_FILE}
-            $<TARGET_FILE_DIR:WebRTCRemoteDesktop>/${JS_FILE}
+            $<TARGET_FILE_DIR:SlipStream>/${JS_FILE}
     )
 endforeach()
 
 foreach(CONFIG_FILE ${CONFIG_FILES})
-    add_custom_command(TARGET WebRTCRemoteDesktop POST_BUILD
+    add_custom_command(TARGET SlipStream POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_SOURCE_DIR}/${CONFIG_FILE}
-            $<TARGET_FILE_DIR:WebRTCRemoteDesktop>/${CONFIG_FILE}
+            $<TARGET_FILE_DIR:SlipStream>/${CONFIG_FILE}
     )
 endforeach()
 
 # Installation Configuration
-install(TARGETS WebRTCRemoteDesktop RUNTIME DESTINATION .)
+install(TARGETS SlipStream RUNTIME DESTINATION .)
 install(FILES ${CMAKE_SOURCE_DIR}/index.html DESTINATION .)
 install(FILES ${CMAKE_SOURCE_DIR}/styles.css DESTINATION .)
 install(DIRECTORY ${CMAKE_SOURCE_DIR}/js DESTINATION .)
@@ -155,19 +155,19 @@ install(DIRECTORY ${CMAKE_BINARY_DIR}/bin/Release/
 )
 
 # CPack Configuration
-set(CPACK_PACKAGE_NAME "WebRTCRemoteDesktop")
-set(CPACK_PACKAGE_VENDOR "WebRTC Remote Desktop")
-set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Low-latency WebRTC remote desktop with AV1 encoding")
+set(CPACK_PACKAGE_NAME "SlipStream")
+set(CPACK_PACKAGE_VENDOR "SlipStream")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Low-latency remote desktop streaming with AV1 encoding")
 set(CPACK_PACKAGE_VERSION "1.0.0")
 set(CPACK_PACKAGE_VERSION_MAJOR "1")
 set(CPACK_PACKAGE_VERSION_MINOR "0")
 set(CPACK_PACKAGE_VERSION_PATCH "0")
-set(CPACK_PACKAGE_INSTALL_DIRECTORY "WebRTCRemoteDesktop")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "SlipStream")
 set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_SOURCE_DIR}/LICENSE.txt")
 
 # NSIS Installer Settings
-set(CPACK_NSIS_DISPLAY_NAME "WebRTC Remote Desktop")
-set(CPACK_NSIS_PACKAGE_NAME "WebRTC Remote Desktop")
+set(CPACK_NSIS_DISPLAY_NAME "SlipStream")
+set(CPACK_NSIS_PACKAGE_NAME "SlipStream")
 set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/icon.ico")
@@ -176,11 +176,11 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/icon.ico")
 endif()
 
 set(CPACK_NSIS_CREATE_ICONS_EXTRA
-    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\WebRTC Remote Desktop.lnk' '$INSTDIR\\\\WebRTCRemoteDesktop.exe'"
+    "CreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\SlipStream.lnk' '$INSTDIR\\\\SlipStream.exe'"
 )
 
 set(CPACK_NSIS_DELETE_ICONS_EXTRA
-    "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\WebRTC Remote Desktop.lnk'"
+    "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\SlipStream.lnk'"
 )
 
 set(CPACK_GENERATOR "ZIP")

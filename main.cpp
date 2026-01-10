@@ -1,6 +1,6 @@
 /**
  * @file main.cpp
- * @brief WebRTC Remote Desktop Server - Main entry point
+ * @brief SlipStream Server - Main entry point
  * @copyright 2025-2026 Daniel Chrobak
  */
 
@@ -112,7 +112,7 @@ int main() {
         HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
         if (h != INVALID_HANDLE_VALUE) { DWORD m = 0; if (GetConsoleMode(h, &m)) SetConsoleMode(h, m | ENABLE_VIRTUAL_TERMINAL_PROCESSING); }
 
-        puts("\n\033[1;36m=== WebRTC Remote Desktop Server ===\033[0m\n");
+        puts("\n\033[1;36m=== SlipStream Server ===\033[0m\n");
         SetupConfig();
 
         constexpr int PORT = 6060;
@@ -195,7 +195,7 @@ int main() {
         std::this_thread::sleep_for(100ms);
 
         printf("\n\033[1;36m==========================================\033[0m\n");
-        printf("\033[1;36m       WEBRTC REMOTE DESKTOP SERVER       \033[0m\n");
+        printf("\033[1;36m            SLIPSTREAM SERVER             \033[0m\n");
         printf("\033[1;36m==========================================\033[0m\n\n");
         printf("  \033[1mLocal:\033[0m  http://localhost:%d\n\n  User: %s | Display: %dHz\n", PORT, g_config.username.c_str(), capture.GetHostFPS());
         printf("\033[1;36m==========================================\033[0m\n\n");
