@@ -3,7 +3,6 @@ import './input.js';
 import { MSG, C, S, $, mkBuf, Stage } from './state.js';
 import { handleAudioPkt, closeAudio, initDecoder, decodeFrame, setReqKeyFn } from './media.js';
 import { updateStats, updateMonOpts, updateFpsOpts, setNetCbs, updateLoadingStage, showLoading, hideLoading, isLoadingVisible } from './ui.js';
-import { handleClipboardMessage, setClipboardSendFn, startClipboardMonitor, syncLocalClipboard } from './clipboard.js';
 
 let baseUrl = '';
 const AUTH_KEY = 'remote_desktop_auth', CONN_KEY = 'remote_desktop_connection';
@@ -80,8 +79,7 @@ $('disconnectBtn')?.addEventListener('click', () => { cleanup(); hasConnected = 
 export const sendMonSel = i => sendMsg(mkBuf(5, v => { v.setUint32(0, MSG.MONITOR_SET, true); v.setUint8(4, i); }));
 export const sendFps = (fps, mode) => sendMsg(mkBuf(7, v => { v.setUint32(0, MSG.FPS_SET, true); v.setUint16(4, fps, true); v.setUint8(6, mode); }));
 export const reqKey = () => sendMsg(mkBuf(4, v => v.setUint32(0, MSG.REQUEST_KEY, true)));
-export const sendClipboard = buf => sendMsg(buf instanceof ArrayBuffer ? new Uint8Array(buf) : buf);
-setReqKeyFn(reqKey); setClipboardSendFn(sendClipboard);
+setReqKeyFn(reqKey);
 
 const updJitter = (t, cap, prev) => { if (S.jitter.last > 0 && prev > 0) { const d = Math.abs((t - S.jitter.last) - (cap - prev) / 1000); if (d < 1000) { S.jitter.deltas.push(d); S.jitter.deltas.length > 60 && S.jitter.deltas.shift(); } } S.jitter.last = t; };
 
@@ -132,7 +130,6 @@ const handleMsg = e => {
     if (mg === MSG.FPS_ACK && len === 7) { S.currentFps = v.getUint16(4, true); S.currentFpsMode = v.getUint8(6); return; }
     if (mg === MSG.MONITOR_LIST && len >= 6) return parseMonList(e.data);
     if (mg === MSG.AUDIO_DATA && len >= 16) return handleAudioPkt(e.data);
-    if (mg === MSG.CLIPBOARD_TEXT || mg === MSG.CLIPBOARD_IMAGE || mg === MSG.CLIPBOARD_ACK) return handleClipboardMessage(e.data);
     if (len < C.HEADER) return;
 
     S.stats.bytes += len; S.stats.tBytes += len;
@@ -164,7 +161,7 @@ const setupDC = () => {
         validCreds(creds) ? sendAuth(creds.username, creds.pin) : showAuthModal();
         await initDecoder(); clearPing();
         pingInterval = setInterval(() => S.dc?.readyState === 'open' && S.dc.send(mkBuf(16, v => { v.setUint32(0, MSG.PING, true); v.setBigUint64(8, BigInt(tsUs()), true); })), C.PING_MS);
-        startClipboardMonitor(); syncLocalClipboard(); };
+    };
     S.dc.onclose = () => { S.fpsSent = S.authenticated = false; clearPing(); };
     S.dc.onerror = e => console.error('DataChannel:', e);
     S.dc.onmessage = handleMsg;

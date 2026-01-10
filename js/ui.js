@@ -2,7 +2,6 @@ import { S, $, resetStats, Stage } from './state.js';
 import { getLatStats, getJitterStats } from './renderer.js';
 import { setTouchMode } from './input.js';
 import { toggleAudio } from './media.js';
-import { enableClipboard, disableClipboard, isClipboardEnabled } from './clipboard.js';
 
 const loadingEl = $('loadingOverlay'), statusEl = $('loadingStatus'), subEl = $('loadingSubstatus');
 const stages = { ice: $('stageIce'), signal: $('stageSignal'), connect: $('stageConnect'), auth: $('stageAuth'), stream: $('stageStream') };
@@ -59,11 +58,6 @@ const bindTog = (id, key, target) => { const el = $(id); el.onclick = () => { S[
 
 bindTog('togS', 'statsOn', statsEl); bindTog('togC', 'consoleOn', conEl);
 $('conClr').onclick = clearLogs;
-
-const togClip = $('togClip'), clipSt = $('clipSt'), clipStT = $('clipStT');
-if (togClip) { togClip.onclick = () => { const en = !isClipboardEnabled(); en ? enableClipboard() : disableClipboard();
-    togClip.classList.toggle('on', en); clipSt.classList.toggle('on', en); clipStT.textContent = en ? 'Active' : 'Disabled'; };
-    togClip.onkeydown = e => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), togClip.click()); }
 
 fpsSel.onchange = () => applyFpsFn?.(fpsSel.value);
 monSel.onchange = () => sendMonFn?.(+monSel.value);
