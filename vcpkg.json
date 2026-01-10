@@ -1,5 +1,7 @@
 {
-  "name": "screenshare",
+  "name": "webrtc-remote-desktop",
+  "version": "1.0.0",
+  "description": "Low-latency WebRTC remote desktop with AV1 encoding",
   "dependencies": [
     "libdatachannel",
     {

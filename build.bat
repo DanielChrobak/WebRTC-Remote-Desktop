@@ -1,7 +1,10 @@
 @echo off
 setlocal
 
-:: Find vcpkg
+REM WebRTC Remote Desktop - Build Script
+REM Copyright 2025-2026 Daniel Chrobak
+
+REM Find vcpkg installation
 set VCPKG=
 for %%p in ("%VCPKG_ROOT%" "C:\vcpkg" "%USERPROFILE%\vcpkg" "vcpkg" "..\vcpkg") do (
     if exist "%%~p\vcpkg.exe" set VCPKG=%%~p& goto :found
@@ -37,5 +40,5 @@ if errorlevel 1 (
 
 cd ..
 echo.
-echo Done: build\bin\Release\ScreenShare.exe
+echo Done: build\bin\Release\WebRTCRemoteDesktop.exe
 pause
