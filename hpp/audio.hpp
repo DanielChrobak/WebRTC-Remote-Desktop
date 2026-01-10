@@ -83,4 +83,6 @@ public:
     void Start() { if (run) return; run = cap = true; if (FAILED(ac->Start())) { run = cap = false; return; } ct = std::thread(&AudioCapture::Loop, this); LOG("Audio started"); }
     void Stop() { if (!run) return; run = cap = false; qcv.notify_all(); if (ct.joinable()) ct.join(); if (ac) ac->Stop(); }
     bool PopPacket(AudioPacket& o, int ms = 10) { std::unique_lock<std::mutex> lk(qm); if (!qcv.wait_for(lk, std::chrono::milliseconds(ms), [this] { return !pq.empty() || !run; }) || pq.empty()) return false; o = std::move(pq.front()); pq.pop(); return true; }
+    int GetSampleRate() const { return opusRate; }
+    int GetChannels() const { return ch; }
 };

@@ -15,20 +15,16 @@ class WebRTCServer {
     std::atomic<bool> conn{false}, nkey{true}, fpsr{false}, gc{false}, authenticated{false};
     std::string ldesc, authUser, authPin; std::mutex dmx, authMtx; std::condition_variable dcv;
     rtc::Configuration cfg;
-
-    static constexpr size_t BT = 32768, CHK = 1200, HDR = sizeof(PktHdr), DCK = CHK - HDR;
+    static constexpr size_t BT = 32768, CHK = 1400, HDR = sizeof(PktHdr), DCK = CHK - HDR;
     std::vector<uint8_t> pb, ab;
     std::atomic<uint64_t> sc{0}, bc{0}, dpc{0}, asc{0}; std::atomic<uint32_t> fid{0};
-    std::atomic<int> cfps{60}, overflows{0}; std::atomic<int64_t> lastPing{0}; std::atomic<bool> pingTimeout{false};
+    std::atomic<int> cfps{60}; std::atomic<uint8_t> cfm{0};
+    std::atomic<int> overflows{0}; std::atomic<int64_t> lastPing{0}; std::atomic<bool> pingTimeout{false};
     std::function<void(int, uint8_t)> onFps; std::function<int()> getHfps, getCmon;
     std::function<bool(int)> onMon; std::function<void()> onDisconnect, onAuth;
-    InputHandler* input = nullptr;
-    std::atomic<int> hostCand{0}, srflxCand{0}, relayCand{0};
+    InputHandler* input = nullptr; std::function<bool(const uint8_t*, size_t)> clipHandler;
 
-    bool SafeSend(const void* d, size_t l) {
-        auto ch = dc; if (!ch || !ch->isOpen()) return false;
-        try { ch->send((const std::byte*)d, l); return true; } catch (...) { return false; }
-    }
+    bool SafeSend(const void* d, size_t l) { auto ch = dc; if (!ch || !ch->isOpen()) return false; try { ch->send((const std::byte*)d, l); return true; } catch (...) { return false; } }
 
     void SendAuthResp(bool ok, const std::string& err = "") {
         auto ch = dc; if (!ch || !ch->isOpen()) return;
@@ -36,7 +32,7 @@ class WebRTCServer {
         auto* msg = (AuthRespMsg*)buf.data(); msg->magic = MSG_AUTH_RESPONSE; msg->success = ok; msg->errorLen = ok ? 0 : (uint8_t)std::min(err.size(), (size_t)255);
         if (!ok) memcpy(buf.data() + sizeof(AuthRespMsg), err.c_str(), msg->errorLen);
         SafeSend(buf.data(), buf.size());
-        if (ok) LOG("Client authenticated"); else { WARN("Auth failed: %s", err.c_str()); std::thread([this] { std::this_thread::sleep_for(100ms); ForceDisconnect("Auth failed"); }).detach(); }
+        if (ok) { LOG("Client authenticated"); } else { WARN("Auth failed: %s", err.c_str()); std::thread([this] { std::this_thread::sleep_for(100ms); ForceDisconnect("Auth failed"); }).detach(); }
     }
 
     void SendHostInfo() { if (auto ch = dc; ch && ch->isOpen()) { int fps = getHfps ? getHfps() : 60; uint8_t b[6]; *(uint32_t*)b = MSG_HOST_INFO; *(uint16_t*)(b+4) = (uint16_t)fps; SafeSend(b, 6); } }
@@ -77,10 +73,11 @@ class WebRTCServer {
         }
         if (!authenticated) return;
         if (input && (mg == MSG_MOUSE_MOVE || mg == MSG_MOUSE_BTN || mg == MSG_MOUSE_WHEEL || mg == MSG_KEY)) { input->HandleMessage(reinterpret_cast<const uint8_t*>(b.data()), b.size()); return; }
+        if ((mg == MSG_CLIPBOARD_TEXT || mg == MSG_CLIPBOARD_IMAGE || mg == MSG_CLIPBOARD_REQUEST) && clipHandler) { clipHandler(reinterpret_cast<const uint8_t*>(b.data()), b.size()); return; }
         if (mg == MSG_PING && b.size() == 16) { lastPing = GetTimestamp() / 1000; overflows = 0; pingTimeout = false; uint8_t p[24]; memcpy(p, b.data(), 16); *(uint64_t*)(p+16) = GetTimestamp(); SafeSend(p, 24); }
         else if (mg == MSG_FPS_SET && b.size() == 7) {
             uint16_t fps = *(uint16_t*)(reinterpret_cast<const uint8_t*>(b.data())+4); uint8_t md = static_cast<uint8_t>(b[6]);
-            if (fps >= 1 && fps <= 240 && md <= 2) { int ac = (md == 1 && getHfps) ? getHfps() : fps; cfps = ac; fpsr = true; if (onFps) onFps(ac, md); uint8_t a[7]; *(uint32_t*)a = MSG_FPS_ACK; *(uint16_t*)(a+4) = (uint16_t)ac; a[6] = md; SafeSend(a, 7); }
+            if (fps >= 1 && fps <= 240 && md <= 2) { int ac = (md == 1 && getHfps) ? getHfps() : fps; cfps = ac; cfm = md; fpsr = true; if (onFps) onFps(ac, md); uint8_t a[7]; *(uint32_t*)a = MSG_FPS_ACK; *(uint16_t*)(a+4) = (uint16_t)ac; a[6] = md; SafeSend(a, 7); }
         }
         else if (mg == MSG_REQUEST_KEY) { nkey = true; }
         else if (mg == MSG_MONITOR_SET && b.size() == 5) { if (onMon && onMon(static_cast<int>(static_cast<uint8_t>(b[4])))) { nkey = true; SendMonitorList(); SendHostInfo(); } }
@@ -89,30 +86,11 @@ class WebRTCServer {
     void Setup() {
         if (pc) { if (dc && dc->isOpen()) dc->close(); dc.reset(); pc->close(); }
         conn = nkey = true; fpsr = gc = authenticated = false; overflows = 0; lastPing = 0; pingTimeout = false;
-        hostCand = srflxCand = relayCand = 0;
         { std::lock_guard<std::mutex> lk(dmx); ldesc.clear(); }
         pc = std::make_shared<rtc::PeerConnection>(cfg);
-
         pc->onLocalDescription([this](rtc::Description d) { std::lock_guard<std::mutex> lk(dmx); ldesc = std::string(d); dcv.notify_all(); });
-        pc->onLocalCandidate([this](rtc::Candidate c) {
-            std::string cand = std::string(c);
-            if (cand.find("typ host") != std::string::npos) hostCand++;
-            else if (cand.find("typ srflx") != std::string::npos) srflxCand++;
-            else if (cand.find("typ relay") != std::string::npos) relayCand++;
-        });
-        pc->onStateChange([this](auto s) {
-            bool was = conn.load(); conn = (s == rtc::PeerConnection::State::Connected);
-            if (conn && !was) { nkey = true; lastPing = GetTimestamp() / 1000; LOG("WebRTC connected"); }
-            if (!conn && was) { fpsr = authenticated = false; overflows = 0; if (onDisconnect) onDisconnect(); }
-        });
-        pc->onIceStateChange([](auto s) { if (s == rtc::PeerConnection::IceState::Failed) WARN("ICE failed - check firewall/NAT"); });
-        pc->onGatheringStateChange([this](auto s) {
-            if (s == rtc::PeerConnection::GatheringState::Complete) {
-                LOG("ICE complete: host=%d srflx=%d relay=%d", hostCand.load(), srflxCand.load(), relayCand.load());
-                if (srflxCand.load() == 0) WARN("No srflx candidates - STUN may be blocked");
-                gc = true; dcv.notify_all();
-            }
-        });
+        pc->onStateChange([this](auto s) { bool was = conn.load(); conn = (s == rtc::PeerConnection::State::Connected); if (conn && !was) { nkey = true; lastPing = GetTimestamp() / 1000; } if (!conn && was) { fpsr = authenticated = false; overflows = 0; if (onDisconnect) onDisconnect(); } });
+        pc->onGatheringStateChange([this](auto s) { if (s == rtc::PeerConnection::GatheringState::Complete) { gc = true; dcv.notify_all(); } });
         pc->onDataChannel([this](auto ch) {
             if (ch->label() != "screen") return;
             dc = ch;
@@ -130,7 +108,7 @@ public:
         cfg.iceServers.push_back(rtc::IceServer("stun:stun1.l.google.com:19302"));
         cfg.portRangeBegin = 50000; cfg.portRangeEnd = 50100; cfg.enableIceTcp = true;
         pb.resize(CHK); ab.resize(4096); Setup();
-        LOG("WebRTC initialized");
+        LOG("WebRTC initialized with STUN");
     }
 
     void SetAuthCredentials(const std::string& u, const std::string& p) { std::lock_guard<std::mutex> lk(authMtx); authUser = u; authPin = p; }
@@ -140,20 +118,12 @@ public:
     void SetMonitorChangeCallback(std::function<bool(int)> cb) { onMon = cb; }
     void SetGetCurrentMonitorCallback(std::function<int()> cb) { getCmon = cb; }
     void SetDisconnectCallback(std::function<void()> cb) { onDisconnect = cb; }
+    void SetClipboardHandler(std::function<bool(const uint8_t*, size_t)> cb) { clipHandler = cb; }
     void SetAuthenticatedCallback(std::function<void()> cb) { onAuth = cb; }
 
-    std::string GetLocal() {
-        std::unique_lock<std::mutex> lk(dmx);
-        dcv.wait_for(lk, 10s, [this] { return !ldesc.empty() && gc.load(); });
-        if (pc) { auto desc = pc->localDescription(); if (desc.has_value()) return std::string(desc.value()); }
-        return ldesc;
-    }
+    std::string GetLocal() { std::unique_lock<std::mutex> lk(dmx); dcv.wait_for(lk, 5s, [this] { return !ldesc.empty() && gc.load(); }); return ldesc; }
 
-    void SetRemote(const std::string& sdp, const std::string& type) {
-        if (type == "offer") Setup();
-        pc->setRemoteDescription(rtc::Description(sdp, type));
-        if (type == "offer") pc->setLocalDescription();
-    }
+    void SetRemote(const std::string& sdp, const std::string& type) { if (type == "offer") Setup(); pc->setRemoteDescription(rtc::Description(sdp, type)); if (type == "offer") pc->setLocalDescription(); }
 
     bool IsConnected() const { return conn; }
     bool IsAuthenticated() const { return authenticated; }
@@ -192,6 +162,8 @@ public:
             if (SafeSend(ab.data(), tl)) { bc += tl; asc++; }
         } catch (...) {}
     }
+
+    void SendClipboard(const std::vector<uint8_t>& data) { if (!conn || !authenticated || data.empty()) return; auto ch = dc; if (!ch || !ch->isOpen() || ch->bufferedAmount() > BT / 2) return; SafeSend(data.data(), data.size()); }
 
     struct Stats { uint64_t sent, bytes, dropped; bool conn; };
     Stats GetStats() { return {sc.exchange(0), bc.exchange(0), dpc.exchange(0), conn.load()}; }

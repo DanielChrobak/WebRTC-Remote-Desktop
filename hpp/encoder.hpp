@@ -106,4 +106,7 @@ public:
     }
 
     uint64_t GetEncoded() { return ec.exchange(0); }
+    uint64_t GetFailed() { return fc.exchange(0); }
+    int GetWidth() const { return w; }
+    int GetHeight() const { return h; }
 };
